@@ -1,0 +1,7 @@
+[workspace]
+
+members = [
+    "jsonpath-compiler"
+]
+
+resolver = "2"
