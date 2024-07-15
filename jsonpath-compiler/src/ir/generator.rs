@@ -1,7 +1,6 @@
 use crate::ir::{Index, Instruction, Name, Query, Segment, Slice};
-use crate::ir::Instruction::{GetChildByName, GetElementAtIndex, PopNode, PushAllChildren, PushNode,
-                             SelectAllChildren, SelectNode, SelectSlice, WhileStackNotEmpty};
-use crate::ir::NodeParam::{CurrentNode, VarNode};
+use crate::ir::Instruction::{PopAndPushAllChildren, SelectAllChildren, SelectChildByName,
+                             SelectElementAtIndex, SelectSlice, WhileStackNotEmpty};
 
 pub fn generate(query_syntax: &rsonpath_syntax::JsonPathQuery) -> Query {
     Query {
@@ -24,19 +23,17 @@ fn generate_child_segment(selectors: &rsonpath_syntax::Selectors) -> Segment {
 
 fn generate_descendant_segment(selectors: &rsonpath_syntax::Selectors) -> Segment {
     let instructions: Vec<Instruction> = vec![
-        PushNode { node: CurrentNode },
         WhileStackNotEmpty {
-            instructions: vec![
-                PopNode,
-                PushAllChildren { node: VarNode },
-            ].into_iter().chain(generate_selectors(selectors).into_iter()).collect()
+            instructions: generate_selectors(selectors).into_iter()
+                .chain(vec![PopAndPushAllChildren])
+                .collect()
         },
     ];
     Segment { instructions }
 }
 
 fn generate_selectors(selectors: &rsonpath_syntax::Selectors) -> Vec<Instruction> {
-    let mut instructions: Vec<Instruction> = vec![];
+    let mut instructions: Vec<Instruction> = Vec::new();
     for selector in selectors.iter() {
         instructions.extend(generate_selector(selector));
     }
@@ -44,26 +41,20 @@ fn generate_selectors(selectors: &rsonpath_syntax::Selectors) -> Vec<Instruction
 }
 
 fn generate_selector(selector_syntax: &rsonpath_syntax::Selector) -> Vec<Instruction> {
-    let instructions: Vec<Instruction>;
+    let mut instructions: Vec<Instruction> = Vec::new();
     match selector_syntax {
         rsonpath_syntax::Selector::Name(name_syntax) => {
             let name = Name(name_syntax.unquoted().to_owned());
-            instructions = vec![
-                GetChildByName { node: CurrentNode, name },
-                SelectNode { node: VarNode },
-            ]
+            instructions.push(SelectChildByName { name });
         }
-        rsonpath_syntax::Selector::Wildcard => instructions = vec![SelectAllChildren { node: CurrentNode }],
+        rsonpath_syntax::Selector::Wildcard => instructions.push(SelectAllChildren),
         rsonpath_syntax::Selector::Index(index_syntax) => {
             let index = generate_index(index_syntax);
-            instructions = vec![
-                GetElementAtIndex { node: CurrentNode, index },
-                SelectNode { node: VarNode },
-            ]
+            instructions.push(SelectElementAtIndex { index });
         }
         rsonpath_syntax::Selector::Slice(slice_syntax) => {
             let slice = generate_slice(slice_syntax);
-            instructions = vec![SelectSlice { node: CurrentNode, slice: slice }]
+            instructions.push(SelectSlice { slice });
         }
         rsonpath_syntax::Selector::Filter(_) => panic!("Filters not supported yet.")
     }
@@ -78,7 +69,7 @@ fn generate_slice(slice_syntax: &rsonpath_syntax::Slice) -> Slice {
     Slice {
         start: index_syntax_as_i64(&slice_syntax.start()),
         end: slice_syntax.end().map(|index_syntax| index_syntax_as_i64(&index_syntax)),
-        step: step_syntax_as_i64(&slice_syntax.step())
+        step: step_syntax_as_i64(&slice_syntax.step()),
     }
 }
 

@@ -2,34 +2,29 @@ pub mod generator;
 
 #[derive(Debug)]
 pub struct Query {
-    segments: Vec<Segment>
+    segments: Vec<Segment>,
 }
 
 #[derive(Debug)]
 pub struct Segment {
-    instructions: Vec<Instruction>
+    instructions: Vec<Instruction>,
 }
 
 #[derive(Debug)]
 pub enum Instruction {
-    GetChildByName {node: NodeParam, name: Name},
-    GetElementAtIndex {node: NodeParam, index: Index},
+    PushRootNode,
 
-    SelectNode {node: NodeParam},
-    SelectAllChildren {node: NodeParam },
-    SelectSlice {node: NodeParam, slice: Slice},
+    PopAndPushAllChildren,
+    PopAndPushChildByName { name: Name },
+    PopAndPushElementAtIndex { index: Index },
 
-    WhileStackNotEmpty {instructions: Vec<Instruction>},
-    PushAllChildren {node: NodeParam },
-    PushNode {node: NodeParam},
-    PopNode,
-}
+    SelectNode,
+    SelectAllChildren,
+    SelectChildByName { name: Name },
+    SelectElementAtIndex { index: Index },
+    SelectSlice { slice: Slice },
 
-#[derive(Debug)]
-pub enum NodeParam {
-    RootNode,
-    CurrentNode,
-    VarNode
+    WhileStackNotEmpty { instructions: Vec<Instruction> },
 }
 
 #[derive(Debug)]
@@ -39,4 +34,8 @@ pub struct Name(String);
 pub struct Index(i64);
 
 #[derive(Debug)]
-pub struct Slice {start: i64, end: Option<i64>, step: i64}
+pub struct Slice {
+    start: i64,
+    end: Option<i64>,
+    step: i64,
+}
