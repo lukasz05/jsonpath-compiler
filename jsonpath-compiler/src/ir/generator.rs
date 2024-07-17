@@ -4,7 +4,7 @@ use crate::ir::{ComparisonOp, Index, Instruction, Literal, Name, Query, Segment,
 use crate::ir::Instruction::{And, Compare, Duplicate, ExistenceTest, Not, Or, Pop,
                              PopAndPushAllChildren, PopAndPushChildByName, PopAndPushElementAtIndex,
                              PushAllChildren, PushLiteral, PushRootNode, SelectAllChildren,
-                             SelectChildByName, SelectElementAtIndex, SelectNodeCond, SelectSlice,
+                             SelectChildByName, SelectElementAtIndex, SelectNodeConditionally, SelectSlice,
                              WhileStackNotEmpty};
 use crate::ir::Literal::{Bool, Float, Int, Null, String};
 
@@ -68,7 +68,7 @@ fn generate_selector(selector_syntax: &rsonpath_syntax::Selector) -> Vec<Instruc
                 PushAllChildren,
                 WhileStackNotEmpty {
                     instructions: generate_logical_expr(logical_expr_syntax).into_iter()
-                        .chain(vec![SelectNodeCond, Pop])
+                        .chain(vec![SelectNodeConditionally, Pop])
                         .collect()
                 },
             ]
