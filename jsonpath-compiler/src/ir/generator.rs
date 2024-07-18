@@ -1,11 +1,11 @@
 use std::iter;
 
 use crate::ir::{ComparisonOp, Index, Instruction, Literal, Name, Query, Segment, Slice};
-use crate::ir::Instruction::{And, Compare, Duplicate, ExistenceTest, Not, Or, Pop,
+use crate::ir::Instruction::{And, Compare, ExistenceTest, FilterIteration, Not, Or,
                              PopAndPushAllChildren, PopAndPushChildByName, PopAndPushElementAtIndex,
-                             PushAllChildren, PushLiteral, PushRootNode, SelectAllChildren,
-                             SelectChildByName, SelectElementAtIndex, SelectNodeConditionally, SelectSlice,
-                             WhileStackNotEmpty};
+                             PushCurrentFilterNode, PushLiteral, PushRootNode, SelectAllChildren,
+                             SelectChildByName, SelectElementAtIndex, SelectNodeConditionally,
+                             SelectSlice, WhileStackNotEmpty};
 use crate::ir::Literal::{Bool, Float, Int, Null, String};
 
 pub fn generate(query_syntax: &rsonpath_syntax::JsonPathQuery) -> Query {
@@ -65,10 +65,10 @@ fn generate_selector(selector_syntax: &rsonpath_syntax::Selector) -> Vec<Instruc
         }
         rsonpath_syntax::Selector::Filter(logical_expr_syntax) => {
             vec![
-                PushAllChildren,
-                WhileStackNotEmpty {
-                    instructions: generate_logical_expr(logical_expr_syntax).into_iter()
-                        .chain(vec![SelectNodeConditionally, Pop])
+                FilterIteration {
+                    instructions: iter::once(PushCurrentFilterNode)
+                        .chain(generate_logical_expr(logical_expr_syntax))
+                        .chain(vec![SelectNodeConditionally])
                         .collect()
                 },
             ]
@@ -122,7 +122,7 @@ fn generate_comparable(comparable_syntax: &rsonpath_syntax::Comparable) -> Vec<I
                 .collect()
         }
         rsonpath_syntax::Comparable::RelativeSingularQuery(singular_query_syntax) => {
-            iter::once(Duplicate)
+            iter::once(PushCurrentFilterNode)
                 .chain(generate_singular_query(singular_query_syntax))
                 .collect()
         }

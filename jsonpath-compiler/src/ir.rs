@@ -53,14 +53,10 @@ impl Display for Segment {
 pub enum Instruction {
     PushLiteral { literal: Literal },
     PushRootNode,
-    PushAllChildren,
 
-    Pop,
     PopAndPushAllChildren,
     PopAndPushChildByName { name: Name },
     PopAndPushElementAtIndex { index: Index },
-
-    Duplicate,
 
     SelectAllChildren,
     SelectChildByName { name: Name },
@@ -75,6 +71,9 @@ pub enum Instruction {
     And,
     Or,
     Not,
+
+    FilterIteration { instructions: Vec<Instruction> },
+    PushCurrentFilterNode,
 }
 
 impl Instruction {
@@ -83,14 +82,11 @@ impl Instruction {
         match self {
             Instruction::PushLiteral { literal } => write!(f, "PushLiteral({literal})"),
             Instruction::PushRootNode => write!(f, "PushRootNode"),
-            Instruction::PushAllChildren => write!(f, "PushAllChildren"),
-            Instruction::Pop => write!(f, "Pop"),
             Instruction::PopAndPushAllChildren => write!(f, "PopAndPushAllChildren"),
             Instruction::PopAndPushChildByName { name } => write!(f, "PopAndPushChildByName({name})"),
             Instruction::PopAndPushElementAtIndex { index } => write!(f, "PopAndPushElementAtIndex({index})"),
-            Instruction::Duplicate => write!(f, "Duplicate"),
             Instruction::SelectAllChildren => write!(f, "SelectAllChildren"),
-            Instruction::SelectChildByName { name } => write!(f, "SelectElementAtIndex({name})"),
+            Instruction::SelectChildByName { name } => write!(f, "SelectChildByName({name})"),
             Instruction::SelectElementAtIndex { index } => write!(f, "SelectElementAtIndex({index})"),
             Instruction::SelectSlice { slice } => write!(f, "SelectSlice({slice})"),
             Instruction::SelectNodeConditionally => write!(f, "SelectNodeConditionally"),
@@ -113,6 +109,16 @@ impl Instruction {
             Instruction::And => write!(f, "And"),
             Instruction::Or => write!(f, "Or"),
             Instruction::Not => write!(f, "Not"),
+            Instruction::FilterIteration { instructions } => {
+                write!(f, "FilterIteration {{\n")?;
+                for instruction in instructions {
+                    instruction.fmt(f, indent + 1)?;
+                    write!(f, "\n")?;
+                }
+                write_indent(f, indent)?;
+                write!(f, "}}")
+            }
+            Instruction::PushCurrentFilterNode => write!(f, "PushCurrentFilterNode")
         }
     }
 }
@@ -136,7 +142,7 @@ pub enum Literal {
 impl Display for Literal {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Literal::String(str) => write!(f, "{}", str),
+            Literal::String(str) => write!(f, "\"{}\"", str),
             Literal::Int(x) => write!(f, "{}", x),
             Literal::Float(x) => write!(f, "{}", x),
             Literal::Bool(bool) => write!(f, "{}", bool),
