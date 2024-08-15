@@ -1,8 +1,10 @@
 #![allow(dead_code)]
 
 mod ir;
+mod compiler;
 
 use std::io::BufRead;
+use crate::compiler::compile_query;
 use crate::ir::generator::generate;
 
 fn main() -> Result<(), std::io::Error> {
@@ -21,7 +23,11 @@ fn main() -> Result<(), std::io::Error> {
         match parsing_res {
             Ok(query_syntax) => {
                 let query_ir = generate(&query_syntax);
-                print!("{query_ir}");
+                // print!("{query_syntax:?}\n\n");
+                // print!("{query_ir}\n\n");
+
+                let target_code = compile_query(query_ir);
+                print!("{target_code}");
             }
             Err(err) => {
                 println!("DBGERR: {err:?}");

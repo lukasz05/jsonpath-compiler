@@ -6,7 +6,7 @@ pub mod generator;
 
 #[derive(Debug)]
 pub struct Query {
-    segments: Vec<Segment>,
+    pub segments: Vec<Segment>,
 }
 
 impl Query {
@@ -68,7 +68,7 @@ pub enum Selector {
     ElementAtIndex { index: Index },
     /// If the node is an array, selects its elements specified by the given slice expression.
     Slice { slice: Slice },
-    // Selects all children satisfying the given filter expressoin.
+    // Selects all children satisfying the given filter expression.
     Filter { logical_expression: LogicalExpression },
 }
 
@@ -256,7 +256,7 @@ impl Display for ComparisonOp {
 }
 
 #[derive(Debug)]
-pub struct Name(String);
+pub struct Name(pub String);
 
 impl Display for Name {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
@@ -265,7 +265,7 @@ impl Display for Name {
 }
 
 #[derive(Debug)]
-pub struct Index(i64);
+pub struct Index(pub i64);
 
 impl Display for Index {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
@@ -275,9 +275,9 @@ impl Display for Index {
 
 #[derive(Debug)]
 pub struct Slice {
-    start: i64,
-    end: Option<i64>,
-    step: i64,
+    pub start: i64,
+    pub end: Option<i64>,
+    pub step: i64,
 }
 
 impl Display for Slice {
