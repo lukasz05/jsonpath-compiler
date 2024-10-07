@@ -1,38 +1,33 @@
 #![allow(dead_code)]
 
-mod ir;
 mod compiler;
+mod ir;
 
-use std::io::BufRead;
 use crate::compiler::compile_query;
 use crate::ir::generator::generate;
+use std::io::Read;
+use std::process::ExitCode;
 
-fn main() -> Result<(), std::io::Error> {
+fn main() -> Result<ExitCode, std::io::Error> {
     let stdin = std::io::stdin();
     let mut handle = stdin.lock();
+    let mut input = String::new();
+    if handle.read_to_string(&mut input)? == 0 {
+        return Ok(ExitCode::FAILURE);
+    }
+    input = input.trim().to_owned();
 
-    let mut line = String::new();
-    loop {
-        line.clear();
-        if handle.read_line(&mut line)? == 0 {
-            break;
+    let parsing_res = rsonpath_syntax::parse(&input);
+    match parsing_res {
+        Ok(query_syntax) => {
+            let query_ir = generate(&query_syntax);
+            let target_code = compile_query(&query_ir);
+            print!("{target_code}");
+            return Ok(ExitCode::SUCCESS);
         }
-        line = line.trim().to_owned();
-
-        let parsing_res = rsonpath_syntax::parse(&line);
-        match parsing_res {
-            Ok(query_syntax) => {
-                let query_ir = generate(&query_syntax);
-                // print!("{query_syntax:?}\n\n");
-                // print!("{query_ir}\n\n");
-
-                let target_code = compile_query(query_ir);
-                print!("{target_code}");
-            }
-            Err(err) => {
-                println!("DBGERR: {err:?}");
-            }
+        Err(err) => {
+            println!("DBGERR: {err:?}");
+            return Ok(ExitCode::FAILURE);
         }
     }
-    Ok(())
 }

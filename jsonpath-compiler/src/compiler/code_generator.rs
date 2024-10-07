@@ -13,8 +13,14 @@ impl CodeGenerator {
         }
     }
 
-    pub fn get_code(&self) -> &str {
-        &self.code
+    pub fn get_code(&self) -> String {
+        self.code.clone()
+    }
+
+    pub fn indent(&mut self) -> &Self {
+        let indent_str = " ".repeat(self.indent_length * self.current_indent_level);
+        self.code.push_str(&indent_str);
+        self
     }
 
     pub fn write(&mut self, code: &str) -> &Self {
@@ -52,12 +58,6 @@ impl CodeGenerator {
     pub fn end_block(&mut self) -> &Self {
         self.current_indent_level -= 1;
         self.write_line("}");
-        self
-    }
-
-    fn indent(&mut self) -> &CodeGenerator {
-        let indent_str = " ".repeat(self.indent_length * self.current_indent_level);
-        self.code.push_str(&indent_str);
         self
     }
 }

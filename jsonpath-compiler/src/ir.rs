@@ -69,7 +69,9 @@ pub enum Selector {
     /// If the node is an array, selects its elements specified by the given slice expression.
     Slice { slice: Slice },
     // Selects all children satisfying the given filter expression.
-    Filter { logical_expression: LogicalExpression },
+    Filter {
+        logical_expression: LogicalExpression,
+    },
 }
 
 impl Selector {
@@ -110,7 +112,9 @@ impl SingularSelector {
         write_indent(f, indent)?;
         match self {
             SingularSelector::ChildByName { name } => write!(f, "SelectChildByName({name})"),
-            SingularSelector::ElementAtIndex { index } => write!(f, "SelectElementAtIndex({index})"),
+            SingularSelector::ElementAtIndex { index } => {
+                write!(f, "SelectElementAtIndex({index})")
+            }
         }
     }
 }
@@ -123,11 +127,26 @@ impl Display for SingularSelector {
 
 #[derive(Debug)]
 pub enum LogicalExpression {
-    Or { lhs: Box<LogicalExpression>, rhs: Box<LogicalExpression> },
-    And { lhs: Box<LogicalExpression>, rhs: Box<LogicalExpression> },
-    Not { expr: Box<LogicalExpression> },
-    Comparison { lhs: Comparable, rhs: Comparable, op: ComparisonOp },
-    ExistenceTest { absolute: bool, subquery: Query },
+    Or {
+        lhs: Box<LogicalExpression>,
+        rhs: Box<LogicalExpression>,
+    },
+    And {
+        lhs: Box<LogicalExpression>,
+        rhs: Box<LogicalExpression>,
+    },
+    Not {
+        expr: Box<LogicalExpression>,
+    },
+    Comparison {
+        lhs: Comparable,
+        rhs: Comparable,
+        op: ComparisonOp,
+    },
+    ExistenceTest {
+        absolute: bool,
+        subquery: Query,
+    },
 }
 
 impl LogicalExpression {
@@ -157,7 +176,11 @@ impl LogicalExpression {
                 write!(f, ")")
             }
             LogicalExpression::ExistenceTest { absolute, subquery } => {
-                write!(f, "{}ExistenceTest(\n", if *absolute { "Absolute" } else { "Relative" })?;
+                write!(
+                    f,
+                    "{}ExistenceTest(\n",
+                    if *absolute { "Absolute" } else { "Relative" }
+                )?;
                 subquery.fmt(f, indent + 1)?;
                 write_indent(f, indent)?;
                 write!(f, ")")
@@ -165,7 +188,13 @@ impl LogicalExpression {
         }
     }
 
-    fn fmt_binop(f: &mut Formatter, indent: u16, op: &str, lhs: &LogicalExpression, rhs: &LogicalExpression) -> fmt::Result {
+    fn fmt_binop(
+        f: &mut Formatter,
+        indent: u16,
+        op: &str,
+        lhs: &LogicalExpression,
+        rhs: &LogicalExpression,
+    ) -> fmt::Result {
         write!(f, "{op}(\n")?;
         lhs.fmt(f, indent + 1)?;
         write!(f, ",\n")?;
@@ -184,16 +213,28 @@ impl Display for LogicalExpression {
 
 #[derive(Debug)]
 pub enum Comparable {
-    SingularQuery { absolute: bool, selectors: Vec<SingularSelector> },
-    Literal { literal: Literal },
+    SingularQuery {
+        absolute: bool,
+        selectors: Vec<SingularSelector>,
+    },
+    Literal {
+        literal: Literal,
+    },
 }
 
 impl Comparable {
     fn fmt(&self, f: &mut Formatter, indent: u16) -> fmt::Result {
         write_indent(f, indent)?;
         match self {
-            Comparable::SingularQuery { absolute, selectors } => {
-                write!(f, "{}SingularQuery(", if *absolute { "Absolute" } else { "Relative" })?;
+            Comparable::SingularQuery {
+                absolute,
+                selectors,
+            } => {
+                write!(
+                    f,
+                    "{}SingularQuery(",
+                    if *absolute { "Absolute" } else { "Relative" }
+                )?;
                 if selectors.len() > 0 {
                     write!(f, "\n")?;
                     for selector in selectors {
@@ -203,7 +244,6 @@ impl Comparable {
                     write_indent(f, indent)?;
                 }
                 write!(f, ")")
-
             }
             Comparable::Literal { literal } => write!(f, "{}", literal),
         }
@@ -215,7 +255,6 @@ impl Display for Comparable {
         self.fmt(f, 0)
     }
 }
-
 
 #[derive(Debug)]
 pub enum Literal {
@@ -233,17 +272,16 @@ impl Display for Literal {
             Literal::Int(x) => write!(f, "{}", x),
             Literal::Float(x) => write!(f, "{}", x),
             Literal::Bool(bool) => write!(f, "{}", bool),
-            Literal::Null => write!(f, "null")
+            Literal::Null => write!(f, "null"),
         }
     }
 }
-
 
 #[derive(Debug)]
 pub enum ComparisonOp {
     EqualTo,
     NotEqualTo,
-    LesserOrEqualTo,
+    LessOrEqualTo,
     GreaterOrEqualTo,
     LessThan,
     GreaterThan,
@@ -282,10 +320,15 @@ pub struct Slice {
 
 impl Display for Slice {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "({}, {}, {})", self.start, self.end.unwrap_or_default(), self.step)
+        write!(
+            f,
+            "({}, {}, {})",
+            self.start,
+            self.end.unwrap_or_default(),
+            self.step
+        )
     }
 }
-
 
 const INDENT: &str = "  ";
 fn write_indent(f: &mut Formatter, indent: u16) -> fmt::Result {
