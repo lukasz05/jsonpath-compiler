@@ -106,7 +106,7 @@ fn generate_epilogue(code_generator: &mut CodeGenerator) {
     code_generator.write_line(r#"cout << node.raw_json() << "\n";"#);
     code_generator.write_line("first = false;");
     code_generator.end_block();
-    code_generator.write_lines(&["", r#"cout << "]\n";"#, "return 0;"]);
+    code_generator.write_lines(&[r#"cout << "]\n";"#, "", "return 0;"]);
     code_generator.end_block();
 }
 
@@ -336,8 +336,7 @@ fn start_object_fields_iteration(code_generator: &mut CodeGenerator) {
     code_generator.write_lines(&[
         "string_view escaped_key_view = field.escaped_key();",
         "string escaped_key = get_jsonpointer_encoded_string(escaped_key_view);",
-        "string_view key_view;",
-        "field.unescaped_key().get(key_view);",
+        "string_view key_view = field.unescaped_key();",
         "string key = string(key_view);",
     ]);
 }
@@ -362,7 +361,7 @@ fn compile_array_selectors<'a>(
                     code_generator,
                     selector_index,
                     child_path_code,
-                    true,
+                    false,
                 );
             }
 
@@ -628,7 +627,8 @@ fn compile_singular_query(
 fn compile_literal(code_generator: &mut CodeGenerator, literal: &Literal) {
     match literal {
         Literal::String(value) => {
-            code_generator.write(&format!("{{STRING, \"{value}\"}}"));
+            let escaped_value = escape(value, EscapeMode::DoubleQuoted);
+            code_generator.write(&format!("{{STRING, string(\"{escaped_value}\")}}"));
         }
         Literal::Int(value) => {
             code_generator.write(&format!("{{INT, {value}ll}}"));
