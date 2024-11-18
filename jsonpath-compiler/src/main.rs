@@ -1,12 +1,12 @@
 #![allow(dead_code)]
 
-mod compiler;
-mod ir;
-
-use crate::compiler::compile_query;
-use crate::ir::generator::generate;
 use std::io::Read;
 use std::process::ExitCode;
+
+use crate::ir::generator::IRGenerator;
+
+mod compiler;
+mod ir;
 
 fn main() -> Result<ExitCode, std::io::Error> {
     let stdin = std::io::stdin();
@@ -20,9 +20,9 @@ fn main() -> Result<ExitCode, std::io::Error> {
     let parsing_res = rsonpath_syntax::parse(&input);
     match parsing_res {
         Ok(query_syntax) => {
-            let query_ir = generate(&query_syntax);
-            let target_code = compile_query(&query_ir);
-            print!("{target_code}");
+            let ir_generator = IRGenerator::new(&query_syntax);
+            let query_ir = ir_generator.generate();
+            print!("{query_ir}");
             return Ok(ExitCode::SUCCESS);
         }
         Err(err) => {

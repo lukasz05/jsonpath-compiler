@@ -1,188 +1,232 @@
-use crate::ir::Comparable::SingularQuery;
-use crate::ir::Literal::{Bool, Float, Int, Null, String};
-use crate::ir::LogicalExpression::{And, Comparison, ExistenceTest, Not, Or};
-use crate::ir::Segment::{ChildSegment, DescendantSegment};
-use crate::ir::Selector::{AllChildren, ChildByName, ElementAtIndex, Filter};
-use crate::ir::{
-    Comparable, ComparisonOp, Index, Literal, LogicalExpression, Name, Query, Segment, Selector,
-    SingularSelector, Slice,
-};
+use std::collections::{HashMap, HashSet, VecDeque};
 
-pub fn generate(query_syntax: &rsonpath_syntax::JsonPathQuery) -> Query {
-    Query {
-        segments: query_syntax
-            .segments()
-            .into_iter()
-            .map(|segment_syntax| generate_segment(segment_syntax))
-            .collect(),
-    }
+use rsonpath_syntax::Selector;
+
+use crate::ir::{Instruction, Procedure, Query};
+use crate::ir::Instruction::{Continue, ExecuteProcedureOnChild, ForEachElement, ForEachMember, IfCurrentMemberNameEquals, SelectChild, TraverseAndMaterializeSelectedNodes};
+
+pub struct IRGenerator<'a> {
+    query_syntax: &'a rsonpath_syntax::JsonPathQuery,
+    generated_procedures: HashMap<Vec<usize>, Procedure>,
+    procedures_to_generate: HashSet<Vec<usize>>,
+    procedure_queue: VecDeque<Vec<usize>>
 }
 
-fn generate_segment(segment_syntax: &rsonpath_syntax::Segment) -> Segment {
-    match segment_syntax {
-        rsonpath_syntax::Segment::Child(selectors) => ChildSegment {
-            selectors: generate_selectors(selectors),
-        },
-        rsonpath_syntax::Segment::Descendant(selectors) => DescendantSegment {
-            selectors: generate_selectors(selectors),
-        },
-    }
-}
-
-fn generate_selectors(selectors_syntax: &rsonpath_syntax::Selectors) -> Vec<Selector> {
-    let mut selectors: Vec<Selector> = Vec::new();
-    for selector in selectors_syntax.iter() {
-        match selector {
-            rsonpath_syntax::Selector::Name(name_syntax) => {
-                let name = Name(name_syntax.unquoted().to_owned());
-                selectors.push(ChildByName { name })
-            }
-            rsonpath_syntax::Selector::Wildcard => selectors.push(AllChildren),
-            rsonpath_syntax::Selector::Index(index_syntax) => {
-                let index = generate_index(index_syntax);
-                selectors.push(ElementAtIndex { index })
-            }
-            rsonpath_syntax::Selector::Slice(slice_syntax) => {
-                let slice = generate_slice(slice_syntax);
-                selectors.push(Selector::Slice { slice })
-            }
-            rsonpath_syntax::Selector::Filter(logical_expr_syntax) => {
-                let logical_expression = generate_logical_expr(logical_expr_syntax);
-                selectors.push(Filter { logical_expression })
-            }
+impl IRGenerator<'_> {
+    pub fn new(query_syntax: &rsonpath_syntax::JsonPathQuery) -> IRGenerator {
+        IRGenerator {
+            query_syntax,
+            generated_procedures: HashMap::new(),
+            procedures_to_generate: HashSet::new(),
+            procedure_queue: VecDeque::new()
         }
     }
-    return selectors;
-}
 
-fn generate_logical_expr(logical_expr_syntax: &rsonpath_syntax::LogicalExpr) -> LogicalExpression {
-    match logical_expr_syntax {
-        rsonpath_syntax::LogicalExpr::Or(lhs, rhs) => Or {
-            lhs: Box::new(generate_logical_expr(lhs)),
-            rhs: Box::new(generate_logical_expr(rhs)),
-        },
-        rsonpath_syntax::LogicalExpr::And(lhs, rhs) => And {
-            lhs: Box::new(generate_logical_expr(lhs)),
-            rhs: Box::new(generate_logical_expr(rhs)),
-        },
-        rsonpath_syntax::LogicalExpr::Not(expr) => Not {
-            expr: Box::new(generate_logical_expr(expr)),
-        },
-        rsonpath_syntax::LogicalExpr::Comparison(comparison_expr) => {
-            generate_comparison(comparison_expr)
-        }
-        rsonpath_syntax::LogicalExpr::Test(test_expr) => generate_existence_test(test_expr),
-    }
-}
-
-fn generate_comparison(
-    comparison_expr_syntax: &rsonpath_syntax::ComparisonExpr,
-) -> LogicalExpression {
-    Comparison {
-        lhs: generate_comparable(comparison_expr_syntax.lhs()),
-        rhs: generate_comparable(comparison_expr_syntax.rhs()),
-        op: generate_comparison_op(&comparison_expr_syntax.op()),
-    }
-}
-
-fn generate_comparable(comparable_syntax: &rsonpath_syntax::Comparable) -> Comparable {
-    match comparable_syntax {
-        rsonpath_syntax::Comparable::Literal(literal_syntax) => Comparable::Literal {
-            literal: generate_literal(literal_syntax),
-        },
-        rsonpath_syntax::Comparable::AbsoluteSingularQuery(singular_query_syntax) => {
-            SingularQuery {
-                absolute: true,
-                selectors: generate_singular_query(singular_query_syntax),
+    pub fn generate(mut self) -> Query {
+        let entry_procedure_sig = vec![0];
+        let entry_procedure_name = Self::get_procedure_name(&entry_procedure_sig);
+        if self.query_syntax.segments().is_empty() {
+            Query {
+                procedures: vec![
+                    Procedure {
+                        name: entry_procedure_name,
+                        instructions: vec![
+                            SelectChild,
+                            ForEachMember {
+                                instructions: vec![TraverseAndMaterializeSelectedNodes]
+                            },
+                            ForEachElement {
+                                instructions: vec![TraverseAndMaterializeSelectedNodes]
+                            },
+                        ],
+                    }
+                ]
             }
-        }
-        rsonpath_syntax::Comparable::RelativeSingularQuery(singular_query_syntax) => {
-            SingularQuery {
-                absolute: false,
-                selectors: generate_singular_query(singular_query_syntax),
+        } else {
+            self.procedure_queue.push_back(entry_procedure_sig.clone());
+            self.procedures_to_generate.insert(entry_procedure_sig);
+            while let Some(procedure_sig) = self.procedure_queue.pop_front() {
+                self.generate_procedure(&procedure_sig);
             }
+            let mut procedures: Vec<Procedure> = self.generated_procedures.into_values().collect();
+            procedures.sort_by(|a, b| a.name.cmp(&b.name));
+            Query { procedures }
         }
     }
-}
 
-fn generate_comparison_op(comparison_op_syntax: &rsonpath_syntax::ComparisonOp) -> ComparisonOp {
-    match comparison_op_syntax {
-        rsonpath_syntax::ComparisonOp::EqualTo => ComparisonOp::EqualTo,
-        rsonpath_syntax::ComparisonOp::NotEqualTo => ComparisonOp::NotEqualTo,
-        rsonpath_syntax::ComparisonOp::LesserOrEqualTo => ComparisonOp::LessOrEqualTo,
-        rsonpath_syntax::ComparisonOp::GreaterOrEqualTo => ComparisonOp::GreaterOrEqualTo,
-        rsonpath_syntax::ComparisonOp::LessThan => ComparisonOp::LessThan,
-        rsonpath_syntax::ComparisonOp::GreaterThan => ComparisonOp::GreaterThan,
+    fn generate_procedure(&mut self, sig: &Vec<usize>) {
+        let selectors: Vec<(&Selector, usize, usize)> = sig.iter()
+            .map(|i| (self.query_syntax.segments()[*i].selectors(), i))
+            .flat_map(
+                |(selectors, segment)| selectors.iter().enumerate().map(
+                    |(pos, selector)| (selector, *segment, pos)
+                )
+            )
+            .collect();
+
+        let object_selectors_instructions =
+            self.generate_object_selectors(&selectors);
+        // TODO:
+        // let array_selectors_instructions =
+        //     self.generate_array_selectors(&selectors);
+
+        self.procedures_to_generate.remove(sig);
+        self.generated_procedures.insert(sig.clone(), Procedure {
+            name: Self::get_procedure_name(sig),
+            instructions: object_selectors_instructions,
+            // TODO:
+            //.into_iter().chain(array_selectors_instructions.into_iter()).collect()
+        });
     }
-}
 
-fn generate_existence_test(test_expr: &rsonpath_syntax::TestExpr) -> LogicalExpression {
-    match test_expr {
-        rsonpath_syntax::TestExpr::Absolute(query_syntax) => ExistenceTest {
-            absolute: true,
-            subquery: generate(query_syntax),
-        },
-        rsonpath_syntax::TestExpr::Relative(query_syntax) => ExistenceTest {
-            absolute: false,
-            subquery: generate(query_syntax),
-        },
-    }
-}
+    fn generate_object_selectors(
+        &mut self,
+        selectors: &Vec<(&Selector, usize, usize)>,
+    ) -> Vec<Instruction> {
+        let descendant_segments = self.get_descendant_segments(selectors);
+        let wildcard_selectors = Self::get_wildcard_occurrences(selectors);
+        let wildcard_segments = Self::get_segments_from_occurrences(&wildcard_selectors);
+        let wildcard_next_segments = self.get_next_segments(&wildcard_segments);
+        let wildcard_final_occurrences =
+            self.get_final_segment_occurrences(&wildcard_selectors);
 
-fn generate_singular_query(
-    singular_query_syntax: &rsonpath_syntax::SingularJsonPathQuery,
-) -> Vec<SingularSelector> {
-    singular_query_syntax
-        .segments()
-        .map(|singular_segment_syntax| match singular_segment_syntax {
-            rsonpath_syntax::SingularSegment::Name(name_syntax) => {
-                let name = Name(name_syntax.unquoted().to_owned());
-                SingularSelector::ChildByName { name }
+        let mut name_selectors: HashMap<String, Vec<(usize, usize)>> = HashMap::new();
+        for (selector, segment, pos) in selectors.iter() {
+            if let Selector::Name(name_json_str) = selector {
+                let name = name_json_str.unquoted().to_string();
+                if let Some(occurrences) = name_selectors.get_mut(&name) {
+                    occurrences.push((*segment, *pos));
+                } else {
+                    name_selectors.insert(name, vec![(*segment, *pos)]);
+                }
             }
-            rsonpath_syntax::SingularSegment::Index(index_syntax) => {
-                let index = generate_index(index_syntax);
-                SingularSelector::ElementAtIndex { index }
+        }
+
+        let mut instructions = Vec::new();
+        for (name, occurrences) in name_selectors {
+            let segments = Self::get_segments_from_occurrences(&occurrences);
+            let next_segments = self.get_next_segments(&segments);
+            let final_occurrences = self.get_final_segment_occurrences(&occurrences);
+            let mut inner_instructions = Vec::new();
+            if !final_occurrences.is_empty() {
+                inner_instructions.push(SelectChild);
             }
-        })
-        .collect()
-}
+            let procedure_segments = descendant_segments.clone().into_iter()
+                .chain(wildcard_next_segments.clone())
+                .chain(next_segments)
+                .collect::<Vec<usize>>();
+            if !procedure_segments.is_empty() {
+                let procedure_name = self.get_or_create_procedure_for_segments(
+                    procedure_segments
+                );
+                inner_instructions.push(ExecuteProcedureOnChild {name: procedure_name});
+                inner_instructions.push(Continue);
+            } else {
+                inner_instructions.push(TraverseAndMaterializeSelectedNodes);
+                inner_instructions.push(Continue);
+            }
+            instructions.push(IfCurrentMemberNameEquals {
+                name,
+                instructions: inner_instructions
+            });
+        }
 
-fn generate_index(index_syntax: &rsonpath_syntax::Index) -> Index {
-    Index(index_syntax_as_i64(index_syntax))
-}
+        if wildcard_segments.len() > 0 {
+            if !wildcard_final_occurrences.is_empty() {
+                instructions.push(SelectChild );
+            }
+            let procedure_segments = descendant_segments.clone().into_iter()
+                .chain(wildcard_next_segments.clone())
+                .collect::<Vec<usize>>();
+            if !procedure_segments.is_empty() {
+                let procedure_name = self.get_or_create_procedure_for_segments(procedure_segments);
+                instructions.push(ExecuteProcedureOnChild { name: procedure_name });
+            }
+        } else if descendant_segments.len() > 0 {
+            let procedure_name = self.get_or_create_procedure_for_segments(
+                descendant_segments.clone().into_iter().collect::<Vec<usize>>()
+            );
+            instructions.push(ExecuteProcedureOnChild { name: procedure_name });
+        } else /* TODO: only if necessary */ {
+            instructions.push(TraverseAndMaterializeSelectedNodes);
+        }
 
-fn generate_slice(slice_syntax: &rsonpath_syntax::Slice) -> Slice {
-    Slice {
-        start: index_syntax_as_i64(&slice_syntax.start()),
-        end: slice_syntax
-            .end()
-            .map(|index_syntax| index_syntax_as_i64(&index_syntax)),
-        step: step_syntax_as_i64(&slice_syntax.step()),
+        vec![ForEachMember { instructions }]
     }
-}
 
-fn generate_literal(literal_syntax: &rsonpath_syntax::Literal) -> Literal {
-    match literal_syntax {
-        rsonpath_syntax::Literal::String(str) => String(str.unquoted().to_owned()),
-        rsonpath_syntax::Literal::Number(num) => match num {
-            rsonpath_syntax::num::JsonNumber::Int(x) => Int(x.as_i64()),
-            rsonpath_syntax::num::JsonNumber::Float(x) => Float(x.as_f64()),
-        },
-        rsonpath_syntax::Literal::Bool(bool) => Bool(bool.to_owned()),
-        rsonpath_syntax::Literal::Null => Null,
+    fn generate_array_selectors(
+        &self,
+        _selectors: &Vec<(&Selector, usize, usize)>,
+    ) -> Vec<Instruction> {
+        unimplemented!()
     }
-}
 
-fn index_syntax_as_i64(index_syntax: &rsonpath_syntax::Index) -> i64 {
-    match index_syntax {
-        rsonpath_syntax::Index::FromStart(num) => num.as_u64() as i64,
-        rsonpath_syntax::Index::FromEnd(num) => -(num.as_u64() as i64),
+    fn get_descendant_segments(&self, selectors: &Vec<(&Selector, usize, usize)>) -> HashSet<usize> {
+        selectors.iter()
+            .filter(|(_, segment, _)| self.query_syntax.segments()[*segment].is_descendant())
+            .map(|(_, segment, _)| *segment)
+            .collect()
     }
-}
 
-fn step_syntax_as_i64(step_syntax: &rsonpath_syntax::Step) -> i64 {
-    match step_syntax {
-        rsonpath_syntax::Step::Forward(num) => num.as_u64() as i64,
-        rsonpath_syntax::Step::Backward(num) => -(num.as_u64() as i64),
+    fn get_wildcard_occurrences(selectors: &Vec<(&Selector, usize, usize)>) -> Vec<(usize, usize)> {
+        selectors.iter()
+            .filter(|(selector, _, _)| selector.is_wildcard())
+            .map(|(_, segment, pos)| (*segment, *pos))
+            .collect()
+    }
+
+    fn get_segments_from_occurrences(occurrences: &Vec<(usize, usize)>) -> Vec<usize> {
+        occurrences.iter().map(|(segment, _)| *segment).collect()
+    }
+
+    fn get_final_segment_occurrences(&self, occurrences: &Vec<(usize, usize)>) -> Vec<(usize, usize)> {
+        occurrences.iter()
+            .filter(|(segment, _)| *segment == self.query_syntax.segments().len() - 1)
+            .map(|(segment, pos)| (*segment, *pos))
+            .collect()
+    }
+
+    fn get_next_segments(&self, segments: &Vec<usize>) -> Vec<usize> {
+        segments.iter()
+            .filter(|segment| *segment + 1 < self.query_syntax.segments().len())
+            .map(|segment| segment + 1)
+            .collect()
+    }
+
+    fn sort_and_deduplicate(mut v: Vec<usize>) -> Vec<usize> {
+        v.sort();
+        v.dedup();
+        v
+    }
+
+    fn get_or_create_procedure_for_segments(&mut self, mut segments: Vec<usize>) -> String {
+        segments = Self::sort_and_deduplicate(segments);
+        if !self.generated_procedures.contains_key(&segments)
+            && !self.procedures_to_generate.contains(&segments) {
+            self.procedures_to_generate.insert(segments.clone());
+            self.procedure_queue.push_back(segments.clone());
+        }
+        Self::get_procedure_name(&segments)
+    }
+
+    fn get_procedure_name(sig: &Vec<usize>) -> String {
+        format!(
+            "Selectors_{}",
+            sig.iter().map(|i| i.to_string()).collect::<Vec<String>>().join("_")
+        )
+    }
+
+    fn index_syntax_as_i64(index_syntax: &rsonpath_syntax::Index) -> i64 {
+        match index_syntax {
+            rsonpath_syntax::Index::FromStart(num) => num.as_u64() as i64,
+            rsonpath_syntax::Index::FromEnd(num) => -(num.as_u64() as i64),
+        }
+    }
+
+    fn step_syntax_as_i64(step_syntax: &rsonpath_syntax::Step) -> i64 {
+        match step_syntax {
+            rsonpath_syntax::Step::Forward(num) => num.as_u64() as i64,
+            rsonpath_syntax::Step::Backward(num) => -(num.as_u64() as i64),
+        }
     }
 }
