@@ -59,23 +59,37 @@ impl Display for Procedure {
 
 #[derive(Debug)]
 pub enum Instruction {
-    ReadArrayLength,
     ForEachElement { instructions: Vec<Instruction> },
     ForEachMember { instructions: Vec<Instruction> },
     IfCurrentIndexEquals { index: u64, instructions: Vec<Instruction> },
     IfCurrentIndexFromEndEquals { index: u64, instructions: Vec<Instruction> },
     IfCurrentMemberNameEquals { name: String, instructions: Vec<Instruction> },
     ExecuteProcedureOnChild { name: String },
-    SelectChild,
+    SaveCurrentNodeDuringTraversal { instruction: Box<Instruction> },
     Continue,
-    TraverseAndMaterializeSelectedNodes
+    TraverseCurrentNodeSubtree
 }
 
 impl Instruction {
+    pub fn is_object_member_iteration(&self) -> bool {
+        if let Instruction::ForEachMember { .. } = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_array_element_iteration(&self) -> bool {
+        if let Instruction::ForEachElement { .. } = self {
+            true
+        } else {
+            false
+        }
+    }
+
     fn fmt(&self, f: &mut Formatter, indent: u16) -> fmt::Result {
         write_indent(f, indent)?;
         match self {
-            Instruction::ReadArrayLength => write!(f, "ReadArrayLength\n"),
             Instruction::ForEachElement { instructions } => {
                 write!(f, "ForEachElement {{\n")?;
                 for instruction in instructions {
@@ -119,12 +133,15 @@ impl Instruction {
             Instruction::ExecuteProcedureOnChild { name } => {
                 write!(f, "{name}(currentMember)\n")
             },
-            Instruction::SelectChild => {
-                write!(f, "SelectChild\n")
+            Instruction::SaveCurrentNodeDuringTraversal { instruction } => {
+                write!(f, "SelectCurrentNode {{\n")?;
+                (**instruction).fmt(f, indent + 1)?;
+                write_indent(f, indent)?;
+                write!(f, "}}\n")
             },
             Instruction::Continue => write!(f, "Continue\n"),
-            Instruction::TraverseAndMaterializeSelectedNodes => {
-                write!(f, "TraverseAndMaterializeSelectedNodes\n")
+            Instruction::TraverseCurrentNodeSubtree => {
+                write!(f, "TraverseCurrentNodeSubtree\n")
             }
         }
     }

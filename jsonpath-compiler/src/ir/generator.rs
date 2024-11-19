@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use rsonpath_syntax::Selector;
 
 use crate::ir::{Instruction, Procedure, Query};
-use crate::ir::Instruction::{Continue, ExecuteProcedureOnChild, ForEachElement, ForEachMember, IfCurrentMemberNameEquals, SelectChild, TraverseAndMaterializeSelectedNodes};
+use crate::ir::Instruction::{Continue, ExecuteProcedureOnChild, ForEachMember, IfCurrentMemberNameEquals, SaveCurrentNodeDuringTraversal, TraverseCurrentNodeSubtree};
 
 pub struct IRGenerator<'a> {
     query_syntax: &'a rsonpath_syntax::JsonPathQuery,
@@ -31,13 +31,9 @@ impl IRGenerator<'_> {
                     Procedure {
                         name: entry_procedure_name,
                         instructions: vec![
-                            SelectChild,
-                            ForEachMember {
-                                instructions: vec![TraverseAndMaterializeSelectedNodes]
-                            },
-                            ForEachElement {
-                                instructions: vec![TraverseAndMaterializeSelectedNodes]
-                            },
+                            SaveCurrentNodeDuringTraversal {
+                                instruction: Box::new(TraverseCurrentNodeSubtree)
+                            }
                         ],
                     }
                 ]
@@ -107,10 +103,8 @@ impl IRGenerator<'_> {
             let segments = Self::get_segments_from_occurrences(&occurrences);
             let next_segments = self.get_next_segments(&segments);
             let final_occurrences = self.get_final_segment_occurrences(&occurrences);
+            let node_selected = !final_occurrences.is_empty();
             let mut inner_instructions = Vec::new();
-            if !final_occurrences.is_empty() {
-                inner_instructions.push(SelectChild);
-            }
             let procedure_segments = descendant_segments.clone().into_iter()
                 .chain(wildcard_next_segments.clone())
                 .chain(next_segments)
@@ -119,10 +113,16 @@ impl IRGenerator<'_> {
                 let procedure_name = self.get_or_create_procedure_for_segments(
                     procedure_segments
                 );
-                inner_instructions.push(ExecuteProcedureOnChild {name: procedure_name});
+                inner_instructions.push(Self::wrap_in_save_current_node_during_traversal_conditionally(
+                    ExecuteProcedureOnChild { name: procedure_name },
+                    node_selected,
+                ));
                 inner_instructions.push(Continue);
             } else {
-                inner_instructions.push(TraverseAndMaterializeSelectedNodes);
+                inner_instructions.push(Self::wrap_in_save_current_node_during_traversal_conditionally(
+                    TraverseCurrentNodeSubtree,
+                    node_selected,
+                ));
                 inner_instructions.push(Continue);
             }
             instructions.push(IfCurrentMemberNameEquals {
@@ -132,23 +132,27 @@ impl IRGenerator<'_> {
         }
 
         if wildcard_segments.len() > 0 {
-            if !wildcard_final_occurrences.is_empty() {
-                instructions.push(SelectChild );
-            }
+            let node_selected = !wildcard_final_occurrences.is_empty();
             let procedure_segments = descendant_segments.clone().into_iter()
                 .chain(wildcard_next_segments.clone())
                 .collect::<Vec<usize>>();
             if !procedure_segments.is_empty() {
                 let procedure_name = self.get_or_create_procedure_for_segments(procedure_segments);
-                instructions.push(ExecuteProcedureOnChild { name: procedure_name });
+                instructions.push(Self::wrap_in_save_current_node_during_traversal_conditionally(
+                    ExecuteProcedureOnChild { name: procedure_name },
+                    node_selected,
+                ));
+            } else {
+                instructions.push(Self::wrap_in_save_current_node_during_traversal_conditionally(
+                    TraverseCurrentNodeSubtree,
+                    node_selected,
+                ));
             }
         } else if descendant_segments.len() > 0 {
             let procedure_name = self.get_or_create_procedure_for_segments(
                 descendant_segments.clone().into_iter().collect::<Vec<usize>>()
             );
             instructions.push(ExecuteProcedureOnChild { name: procedure_name });
-        } else /* TODO: only if necessary */ {
-            instructions.push(TraverseAndMaterializeSelectedNodes);
         }
 
         vec![ForEachMember { instructions }]
@@ -214,6 +218,17 @@ impl IRGenerator<'_> {
             "Selectors_{}",
             sig.iter().map(|i| i.to_string()).collect::<Vec<String>>().join("_")
         )
+    }
+
+    fn wrap_in_save_current_node_during_traversal_conditionally(
+        instruction: Instruction,
+        condition: bool,
+    ) -> Instruction {
+        if condition {
+            SaveCurrentNodeDuringTraversal { instruction: Box::new(instruction) }
+        } else {
+            instruction
+        }
     }
 
     fn index_syntax_as_i64(index_syntax: &rsonpath_syntax::Index) -> i64 {
