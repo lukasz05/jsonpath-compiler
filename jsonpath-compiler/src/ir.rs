@@ -131,7 +131,7 @@ impl Instruction {
                 write!(f, "}}\n")
             },
             Instruction::ExecuteProcedureOnChild { name } => {
-                write!(f, "{name}(currentMember)\n")
+                write!(f, "{name}(currentChild)\n")
             },
             Instruction::SaveCurrentNodeDuringTraversal { instruction } => {
                 write!(f, "SelectCurrentNode {{\n")?;

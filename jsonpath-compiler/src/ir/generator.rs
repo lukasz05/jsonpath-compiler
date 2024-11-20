@@ -1,9 +1,12 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::hash::Hash;
 
 use rsonpath_syntax::Selector;
 
 use crate::ir::{Instruction, Procedure, Query};
-use crate::ir::Instruction::{Continue, ExecuteProcedureOnChild, ForEachMember, IfCurrentMemberNameEquals, SaveCurrentNodeDuringTraversal, TraverseCurrentNodeSubtree};
+use crate::ir::Instruction::{Continue, ExecuteProcedureOnChild, ForEachElement, ForEachMember,
+                             IfCurrentIndexEquals, IfCurrentMemberNameEquals,
+                             SaveCurrentNodeDuringTraversal, TraverseCurrentNodeSubtree};
 
 pub struct IRGenerator<'a> {
     query_syntax: &'a rsonpath_syntax::JsonPathQuery,
@@ -59,19 +62,15 @@ impl IRGenerator<'_> {
                 )
             )
             .collect();
-
         let object_selectors_instructions =
             self.generate_object_selectors(&selectors);
-        // TODO:
-        // let array_selectors_instructions =
-        //     self.generate_array_selectors(&selectors);
-
+        let array_selectors_instructions =
+            self.generate_array_selectors(&selectors);
         self.procedures_to_generate.remove(sig);
         self.generated_procedures.insert(sig.clone(), Procedure {
             name: Self::get_procedure_name(sig),
-            instructions: object_selectors_instructions,
-            // TODO:
-            //.into_iter().chain(array_selectors_instructions.into_iter()).collect()
+            instructions: object_selectors_instructions
+                .into_iter().chain(array_selectors_instructions.into_iter()).collect()
         });
     }
 
@@ -83,54 +82,85 @@ impl IRGenerator<'_> {
         let wildcard_selectors = Self::get_wildcard_occurrences(selectors);
         let wildcard_segments = Self::get_segments_from_occurrences(&wildcard_selectors);
         let wildcard_next_segments = self.get_next_segments(&wildcard_segments);
-        let wildcard_final_occurrences =
-            self.get_final_segment_occurrences(&wildcard_selectors);
-
-        let mut name_selectors: HashMap<String, Vec<(usize, usize)>> = HashMap::new();
-        for (selector, segment, pos) in selectors.iter() {
-            if let Selector::Name(name_json_str) = selector {
-                let name = name_json_str.unquoted().to_string();
-                if let Some(occurrences) = name_selectors.get_mut(&name) {
-                    occurrences.push((*segment, *pos));
-                } else {
-                    name_selectors.insert(name, vec![(*segment, *pos)]);
-                }
-            }
-        }
-
+        let name_selectors = Self::create_selector_occurrences_map(
+            selectors,
+            Self::extract_name_from_selector,
+        );
         let mut instructions = Vec::new();
         for (name, occurrences) in name_selectors {
             let segments = Self::get_segments_from_occurrences(&occurrences);
             let next_segments = self.get_next_segments(&segments);
             let final_occurrences = self.get_final_segment_occurrences(&occurrences);
             let node_selected = !final_occurrences.is_empty();
-            let mut inner_instructions = Vec::new();
             let procedure_segments = descendant_segments.clone().into_iter()
                 .chain(wildcard_next_segments.clone())
                 .chain(next_segments)
                 .collect::<Vec<usize>>();
-            if !procedure_segments.is_empty() {
-                let procedure_name = self.get_or_create_procedure_for_segments(
-                    procedure_segments
-                );
-                inner_instructions.push(Self::wrap_in_save_current_node_during_traversal_conditionally(
-                    ExecuteProcedureOnChild { name: procedure_name },
-                    node_selected,
-                ));
-                inner_instructions.push(Continue);
-            } else {
-                inner_instructions.push(Self::wrap_in_save_current_node_during_traversal_conditionally(
-                    TraverseCurrentNodeSubtree,
-                    node_selected,
-                ));
-                inner_instructions.push(Continue);
-            }
+            let inner_instructions = self.generate_procedure_execution(procedure_segments, node_selected);
             instructions.push(IfCurrentMemberNameEquals {
                 name,
                 instructions: inner_instructions
             });
         }
+        instructions.append(&mut self.generate_wildcard_and_descendant_selectors(
+            wildcard_selectors,
+            wildcard_segments,
+            wildcard_next_segments,
+            descendant_segments,
+        ));
+        vec![ForEachMember { instructions }]
+    }
 
+    fn generate_array_selectors(
+        &mut self,
+        selectors: &Vec<(&Selector, usize, usize)>,
+    ) -> Vec<Instruction> {
+        let descendant_segments = self.get_descendant_segments(selectors);
+        let wildcard_selectors = Self::get_wildcard_occurrences(selectors);
+        let wildcard_segments = Self::get_segments_from_occurrences(&wildcard_selectors);
+        let wildcard_next_segments = self.get_next_segments(&wildcard_segments);
+        let index_selectors = Self::create_selector_occurrences_map(
+            selectors,
+            Self::extract_index_from_selector,
+        );
+        let mut instructions = Vec::new();
+        for (index, occurrences) in index_selectors {
+            if index < 0 {
+                continue
+            }
+            let segments = Self::get_segments_from_occurrences(&occurrences);
+            let next_segments = self.get_next_segments(&segments);
+            let final_occurrences = self.get_final_segment_occurrences(&occurrences);
+            let node_selected = !final_occurrences.is_empty();
+            let procedure_segments = descendant_segments.clone().into_iter()
+                .chain(wildcard_next_segments.clone())
+                .chain(next_segments)
+                .collect::<Vec<usize>>();
+            let inner_instructions = self.generate_procedure_execution(procedure_segments, node_selected);
+            instructions.push(IfCurrentIndexEquals {
+                index: u64::from_ne_bytes(index.to_ne_bytes()),
+                instructions: inner_instructions,
+            });
+        }
+        instructions.append(&mut self.generate_wildcard_and_descendant_selectors(
+            wildcard_selectors,
+            wildcard_segments,
+            wildcard_next_segments,
+            descendant_segments,
+        ));
+        vec![ForEachElement { instructions }]
+    }
+
+    fn generate_wildcard_and_descendant_selectors(
+        &mut self,
+        wildcard_selectors: Vec<(usize, usize)>,
+        wildcard_segments: Vec<usize>,
+        wildcard_next_segments: Vec<usize>,
+        descendant_segments: Vec<usize>,
+    ) -> Vec<Instruction> {
+        let wildcard_final_occurrences =
+            self.get_final_segment_occurrences(&wildcard_selectors);
+        let mut instructions = Vec::new();
         if wildcard_segments.len() > 0 {
             let node_selected = !wildcard_final_occurrences.is_empty();
             let procedure_segments = descendant_segments.clone().into_iter()
@@ -154,18 +184,35 @@ impl IRGenerator<'_> {
             );
             instructions.push(ExecuteProcedureOnChild { name: procedure_name });
         }
-
-        vec![ForEachMember { instructions }]
+        instructions
     }
 
-    fn generate_array_selectors(
-        &self,
-        _selectors: &Vec<(&Selector, usize, usize)>,
+    fn generate_procedure_execution(
+        &mut self,
+        procedure_segments: Vec<usize>,
+        node_selected: bool
     ) -> Vec<Instruction> {
-        unimplemented!()
+        let mut instructions = Vec::new();
+        if !procedure_segments.is_empty() {
+            let procedure_name = self.get_or_create_procedure_for_segments(
+                procedure_segments
+            );
+            instructions.push(Self::wrap_in_save_current_node_during_traversal_conditionally(
+                ExecuteProcedureOnChild { name: procedure_name },
+                node_selected,
+            ));
+            instructions.push(Continue);
+        } else {
+            instructions.push(Self::wrap_in_save_current_node_during_traversal_conditionally(
+                TraverseCurrentNodeSubtree,
+                node_selected,
+            ));
+            instructions.push(Continue);
+        }
+        instructions
     }
 
-    fn get_descendant_segments(&self, selectors: &Vec<(&Selector, usize, usize)>) -> HashSet<usize> {
+    fn get_descendant_segments(&self, selectors: &Vec<(&Selector, usize, usize)>) -> Vec<usize> {
         selectors.iter()
             .filter(|(_, segment, _)| self.query_syntax.segments()[*segment].is_descendant())
             .map(|(_, segment, _)| *segment)
@@ -197,12 +244,6 @@ impl IRGenerator<'_> {
             .collect()
     }
 
-    fn sort_and_deduplicate(mut v: Vec<usize>) -> Vec<usize> {
-        v.sort();
-        v.dedup();
-        v
-    }
-
     fn get_or_create_procedure_for_segments(&mut self, mut segments: Vec<usize>) -> String {
         segments = Self::sort_and_deduplicate(segments);
         if !self.generated_procedures.contains_key(&segments)
@@ -220,6 +261,23 @@ impl IRGenerator<'_> {
         )
     }
 
+    fn create_selector_occurrences_map<T: Eq + Hash>(
+        selectors: &Vec<(&Selector, usize, usize)>,
+        key: fn(&Selector) -> Option<T>,
+    ) -> HashMap<T, Vec<(usize, usize)>> {
+        let mut map: HashMap<T, Vec<(usize, usize)>> = HashMap::new();
+        for (selector, segment, pos) in selectors.iter() {
+            if let Some(key) = key(selector) {
+                if let Some(occurrences) = map.get_mut(&key) {
+                    occurrences.push((*segment, *pos));
+                } else {
+                    map.insert(key, vec![(*segment, *pos)]);
+                }
+            }
+        }
+        map
+    }
+
     fn wrap_in_save_current_node_during_traversal_conditionally(
         instruction: Instruction,
         condition: bool,
@@ -231,17 +289,39 @@ impl IRGenerator<'_> {
         }
     }
 
-    fn index_syntax_as_i64(index_syntax: &rsonpath_syntax::Index) -> i64 {
+    fn extract_name_from_selector(selector: &Selector) -> Option<String> {
+        if let Selector::Name(name_json_str) = selector {
+            Some(name_json_str.unquoted().to_string())
+        } else {
+            None
+        }
+    }
+
+    fn extract_index_from_selector(selector: &Selector) -> Option<i64> {
+        if let Selector::Index(index_syntax) = selector {
+            Some(Self::get_index_syntax_as_i64(index_syntax))
+        } else {
+            None
+        }
+    }
+
+    fn get_index_syntax_as_i64(index_syntax: &rsonpath_syntax::Index) -> i64 {
         match index_syntax {
             rsonpath_syntax::Index::FromStart(num) => num.as_u64() as i64,
             rsonpath_syntax::Index::FromEnd(num) => -(num.as_u64() as i64),
         }
     }
 
-    fn step_syntax_as_i64(step_syntax: &rsonpath_syntax::Step) -> i64 {
+    fn get_step_syntax_as_i64(step_syntax: &rsonpath_syntax::Step) -> i64 {
         match step_syntax {
             rsonpath_syntax::Step::Forward(num) => num.as_u64() as i64,
             rsonpath_syntax::Step::Backward(num) => -(num.as_u64() as i64),
         }
+    }
+
+    fn sort_and_deduplicate(mut v: Vec<usize>) -> Vec<usize> {
+        v.sort();
+        v.dedup();
+        v
     }
 }

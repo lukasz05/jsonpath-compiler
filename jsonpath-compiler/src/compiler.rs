@@ -22,10 +22,8 @@ impl ToOnDemandCompiler<'_> {
         let procedure_names: Vec<&String> = procedures.iter()
             .map(|proc| &proc.name)
             .collect();
-
         self.generate_prologue(&procedure_names);
         self.compile_procedures();
-
         self.code_generator.get_code()
     }
 
@@ -146,10 +144,13 @@ impl ToOnDemandCompiler<'_> {
             Instruction::ForEachMember { .. } => {
                 self.compile_object_iteration(instruction);
             }
-            Instruction::IfCurrentIndexFromEndEquals { .. } => {
-                todo!()
+            Instruction::IfCurrentIndexEquals { index, instructions } => {
+                self.code_generator.write_line(&format!("if (index == {index})"));
+                self.code_generator.start_block();
+                self.compile_instructions(instructions, current_node);
+                self.code_generator.end_block();
             }
-            Instruction::IfCurrentIndexEquals { .. } => {
+            Instruction::IfCurrentIndexFromEndEquals { .. } => {
                 todo!()
             }
             Instruction::IfCurrentMemberNameEquals { name, instructions } => {
@@ -205,15 +206,15 @@ impl ToOnDemandCompiler<'_> {
         self.code_generator.start_block();
         self.code_generator.write_lines(&[
             r#"add_to_all_streams(results_in_progress, string_view("["));"#,
-            "bool first = true;",
+            "size_t index = 0;",
             "for (ondemand::value element : array)"
         ]);
         self.code_generator.start_block();
         self.code_generator.write_line(
-            r#"if (!first) add_to_all_streams(results_in_progress, string_view(", "));"#,
+            r#"if (index > 0) add_to_all_streams(results_in_progress, string_view(", "));"#,
         );
         self.compile_instructions(instructions, "element");
-        self.code_generator.write_line("first = false;");
+        self.code_generator.write_line("index++;");
         self.code_generator.end_block();
         self.code_generator.write_line(
             r#"add_to_all_streams(results_in_progress, string_view("]"));"#,
