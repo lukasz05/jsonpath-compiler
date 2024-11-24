@@ -5,8 +5,9 @@ use rsonpath_syntax::Selector;
 
 use crate::ir::{Instruction, Procedure, Query};
 use crate::ir::Instruction::{Continue, ExecuteProcedureOnChild, ForEachElement, ForEachMember,
-                             IfCurrentIndexEquals, IfCurrentMemberNameEquals,
-                             SaveCurrentNodeDuringTraversal, TraverseCurrentNodeSubtree};
+                             IfCurrentIndexEquals, IfCurrentIndexFromEndEquals,
+                             IfCurrentMemberNameEquals, SaveCurrentNodeDuringTraversal,
+                             TraverseCurrentNodeSubtree};
 
 pub struct IRGenerator<'a> {
     query_syntax: &'a rsonpath_syntax::JsonPathQuery,
@@ -123,11 +124,16 @@ impl IRGenerator<'_> {
             selectors,
             Self::extract_index_from_selector,
         );
+        let non_negative_index_selectors: HashMap<i64, Vec<(usize, usize)>> = index_selectors.iter()
+            .filter(|(x, _)| **x >= 0)
+            .map(|(x, occurrences)| (*x, occurrences.clone()))
+            .collect();
+        let negative_index_selectors: HashMap<i64, Vec<(usize, usize)>> = index_selectors.iter()
+            .filter(|(x, _)| **x < 0)
+            .map(|(x, occurrences)| (*x, occurrences.clone()))
+            .collect();
         let mut instructions = Vec::new();
-        for (index, occurrences) in index_selectors {
-            if index < 0 {
-                continue
-            }
+        for (index, occurrences) in non_negative_index_selectors {
             let segments = Self::get_segments_from_occurrences(&occurrences);
             let next_segments = self.get_next_segments(&segments);
             let final_occurrences = self.get_final_segment_occurrences(&occurrences);
@@ -136,9 +142,44 @@ impl IRGenerator<'_> {
                 .chain(wildcard_next_segments.clone())
                 .chain(next_segments)
                 .collect::<Vec<usize>>();
-            let inner_instructions = self.generate_procedure_execution(procedure_segments, node_selected);
+            let mut inner_instructions = Vec::new();
+            for (neg_index, occurrences) in &negative_index_selectors {
+                let neg_segments = Self::get_segments_from_occurrences(&occurrences);
+                let neg_next_segments = self.get_next_segments(&neg_segments);
+                let neg_final_occurrences = self.get_final_segment_occurrences(&occurrences);
+                let neg_node_selected = !neg_final_occurrences.is_empty();
+                let inner_inner_instructions = self.generate_procedure_execution(
+                    procedure_segments.clone().into_iter().chain(neg_next_segments).collect(),
+                    node_selected || neg_node_selected,
+                );
+                inner_instructions.push(IfCurrentIndexFromEndEquals {
+                    index: u64::from_ne_bytes(i64::abs(*neg_index).to_ne_bytes()),
+                    instructions: inner_inner_instructions,
+                })
+            }
+            inner_instructions = inner_instructions.into_iter().chain(
+                self.generate_procedure_execution(procedure_segments, node_selected)
+            ).collect();
             instructions.push(IfCurrentIndexEquals {
                 index: u64::from_ne_bytes(index.to_ne_bytes()),
+                instructions: inner_instructions,
+            });
+        }
+        for (neg_index, occurrences) in negative_index_selectors {
+            let segments = Self::get_segments_from_occurrences(&occurrences);
+            let next_segments = self.get_next_segments(&segments);
+            let final_occurrences = self.get_final_segment_occurrences(&occurrences);
+            let node_selected = !final_occurrences.is_empty();
+            let procedure_segments = descendant_segments.clone().into_iter()
+                .chain(wildcard_next_segments.clone())
+                .chain(next_segments)
+                .collect::<Vec<usize>>();
+            let inner_instructions = self.generate_procedure_execution(
+                procedure_segments,
+                node_selected,
+            );
+            instructions.push(IfCurrentIndexFromEndEquals {
+                index: u64::from_ne_bytes(i64::abs(neg_index).to_ne_bytes()),
                 instructions: inner_instructions,
             });
         }

@@ -1,6 +1,9 @@
 use crate::compiler::code_generator::CodeGenerator;
 use crate::ir::{Instruction, Procedure, Query};
-use crate::ir::Instruction::{ForEachElement, ForEachMember, TraverseCurrentNodeSubtree};
+use crate::ir::Instruction::{ExecuteProcedureOnChild, ForEachElement, ForEachMember,
+                             IfCurrentIndexEquals, IfCurrentIndexFromEndEquals,
+                             IfCurrentMemberNameEquals, SaveCurrentNodeDuringTraversal,
+                             TraverseCurrentNodeSubtree};
 
 mod code_generator;
 
@@ -138,22 +141,26 @@ impl ToOnDemandCompiler<'_> {
 
     fn compile_instruction(&mut self, instruction: &Instruction, current_node: &str) {
         match instruction {
-            Instruction::ForEachElement { .. } => {
+            ForEachElement { .. } => {
                 self.compile_array_iteration(instruction);
             },
-            Instruction::ForEachMember { .. } => {
+            ForEachMember { .. } => {
                 self.compile_object_iteration(instruction);
             }
-            Instruction::IfCurrentIndexEquals { index, instructions } => {
+            IfCurrentIndexEquals { index, instructions } => {
                 self.code_generator.write_line(&format!("if (index == {index})"));
                 self.code_generator.start_block();
                 self.compile_instructions(instructions, current_node);
                 self.code_generator.end_block();
             }
-            Instruction::IfCurrentIndexFromEndEquals { .. } => {
-                todo!()
+            IfCurrentIndexFromEndEquals { index, instructions } => {
+                self.code_generator.write_line(&format!("if (array_length - index == {index})"));
+                self.code_generator.start_block();
+                self.compile_instructions(instructions, current_node);
+                self.code_generator.end_block();
+
             }
-            Instruction::IfCurrentMemberNameEquals { name, instructions } => {
+            IfCurrentMemberNameEquals { name, instructions } => {
                 self.code_generator.write_line(&format!(
                     "if (key == \"{}\")",
                     rsonpath_syntax::str::escape(
@@ -165,7 +172,7 @@ impl ToOnDemandCompiler<'_> {
                 self.compile_instructions(instructions, current_node);
                 self.code_generator.end_block();
             }
-            Instruction::ExecuteProcedureOnChild { name } => {
+            ExecuteProcedureOnChild { name } => {
                 self.code_generator.write_line(
                     &format!(
                         "{}({current_node}, results_in_progress, all_results);",
@@ -173,7 +180,7 @@ impl ToOnDemandCompiler<'_> {
                     )
                 );
             }
-            Instruction::SaveCurrentNodeDuringTraversal { instruction } => {
+            SaveCurrentNodeDuringTraversal { instruction } => {
                 self.code_generator.write_lines(&[
                     "shared_ptr<ostringstream> stream_ptr = make_shared<ostringstream>();",
                     "all_results.push_back(stream_ptr);",
@@ -185,7 +192,7 @@ impl ToOnDemandCompiler<'_> {
             Instruction::Continue => {
                 self.code_generator.write_line("continue;");
             }
-            Instruction::TraverseCurrentNodeSubtree => {
+            TraverseCurrentNodeSubtree => {
                 self.code_generator.write_line(
                     &format!(
                         "traverse_and_save_selected_nodes({current_node}, results_in_progress);"
@@ -196,7 +203,7 @@ impl ToOnDemandCompiler<'_> {
     }
 
     fn compile_array_iteration(&mut self, loop_instruction: &Instruction) {
-        let Instruction::ForEachElement { instructions } = loop_instruction else {
+        let ForEachElement { instructions } = loop_instruction else {
             panic!()
         };
         self.code_generator.write_lines(&[
@@ -206,15 +213,23 @@ impl ToOnDemandCompiler<'_> {
         self.code_generator.start_block();
         self.code_generator.write_lines(&[
             r#"add_to_all_streams(results_in_progress, string_view("["));"#,
-            "size_t index = 0;",
-            "for (ondemand::value element : array)"
+            "bool first = true;",
+            "size_t index = 0;"
         ]);
+        if Self::is_array_length_needed(instructions) {
+            self.code_generator.write_line("size_t array_length = array.count_elements();");
+        }
+        self.code_generator.write_line("for (ondemand::value element : array)");
         self.code_generator.start_block();
-        self.code_generator.write_line(
-            r#"if (index > 0) add_to_all_streams(results_in_progress, string_view(", "));"#,
-        );
+        self.code_generator.write_line("if (!first)");
+        self.code_generator.start_block();
+        self.code_generator.write_lines(&[
+            "index++;",
+            r#"add_to_all_streams(results_in_progress, string_view(", "));"#,
+        ]);
+        self.code_generator.end_block();
+        self.code_generator.write_line("first = false;");
         self.compile_instructions(instructions, "element");
-        self.code_generator.write_line("index++;");
         self.code_generator.end_block();
         self.code_generator.write_line(
             r#"add_to_all_streams(results_in_progress, string_view("]"));"#,
@@ -223,7 +238,7 @@ impl ToOnDemandCompiler<'_> {
     }
 
     fn compile_object_iteration(&mut self, loop_instruction: &Instruction) {
-        let Instruction::ForEachMember { instructions } = loop_instruction else {
+        let ForEachMember { instructions } = loop_instruction else {
             panic!()
         };
         self.code_generator.write_lines(&[
@@ -262,6 +277,31 @@ impl ToOnDemandCompiler<'_> {
                 &format!("{};", Self::get_procedure_signature(name))
             );
         }
+    }
+
+    fn is_array_length_needed(instructions: &Vec<Instruction>) -> bool {
+        for instruction in instructions {
+            let is_needed = match instruction {
+                IfCurrentIndexFromEndEquals { .. } => true,
+                IfCurrentIndexEquals { index: _index, instructions } => {
+                    Self::is_array_length_needed(instructions)
+                }
+                IfCurrentMemberNameEquals { name: _name, instructions } => {
+                    Self::is_array_length_needed(instructions)
+                }
+                ForEachMember { instructions } => {
+                    Self::is_array_length_needed(instructions)
+                }
+                ForEachElement { instructions } => {
+                    Self::is_array_length_needed(instructions)
+                }
+                _ => false
+            };
+            if is_needed {
+                return true
+            }
+        }
+        false
     }
 }
 
