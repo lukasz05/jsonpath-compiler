@@ -253,7 +253,7 @@ impl ToOnDemandCompiler<'_> {
         ]);
         self.code_generator.start_block();
         self.code_generator.write_lines(&[
-            "string_view key = field.escaped_key();",
+            "string_view key = field.unescaped_key();",
             "for (const auto &stream_ptr : results_in_progress)"
         ]);
         self.code_generator.start_block();
