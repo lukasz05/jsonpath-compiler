@@ -1,11 +1,14 @@
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 
+use itertools::Itertools;
+
 pub mod generator;
 
 #[derive(Debug)]
 pub struct Query {
     pub procedures: Vec<Procedure>,
+    pub filter_procedures: Vec<FilterProcedure>
 }
 
 impl Query {
@@ -17,6 +20,10 @@ impl Query {
             }
             first = false;
             procedure.fmt(f, indent)?;
+        }
+        for filter_procedure in &self.filter_procedures {
+            write!(f, "\n")?;
+            filter_procedure.fmt(f, indent)?;
         }
         Ok(())
     }
@@ -38,12 +45,7 @@ impl Procedure {
     fn fmt(&self, f: &mut Formatter, indent: u16) -> fmt::Result {
         write_indent(f, indent)?;
         write!(f, "{} {{\n", self.name)?;
-        let mut first = true;
         for instruction in &self.instructions {
-            if !first {
-                write!(f, "\n")?;
-            }
-            first = false;
             instruction.fmt(f, indent + 1)?;
         }
         write_indent(f, indent)?;
@@ -168,6 +170,165 @@ pub struct Index(pub i64);
 impl Display for Index {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug)]
+pub struct FilterProcedure {
+    pub name: String,
+    pub arity: usize,
+    pub expression: FilterExpression,
+}
+
+impl FilterProcedure {
+    fn fmt(&self, f: &mut Formatter, indent: u16) -> fmt::Result {
+        write_indent(f, indent)?;
+        let params_str = (1..self.arity + 1).into_iter()
+            .map(|i| format!("param{i}"))
+            .join(", ");
+        let signature = format!("{}({params_str})", self.name);
+        write!(f, "{} {{\n", signature)?;
+        self.expression.fmt(f, indent + 1)?;
+        write_indent(f, indent)?;
+        write!(f, "}}\n")
+    }
+}
+
+impl Display for FilterProcedure {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        self.fmt(f, 0)
+    }
+}
+
+#[derive(Debug)]
+pub enum FilterExpression {
+    Or { lhs: Box<FilterExpression>, rhs: Box<FilterExpression> },
+    And { lhs: Box<FilterExpression>, rhs: Box<FilterExpression> },
+    Not { expr: Box<FilterExpression> },
+    Comparison { lhs: Comparable, rhs: Comparable, op: ComparisonOp },
+    BoolParam { id: usize },
+}
+
+impl FilterExpression {
+    fn fmt(&self, f: &mut Formatter, indent: u16) -> fmt::Result {
+        write_indent(f, indent)?;
+        match self {
+            FilterExpression::Or { lhs, rhs } => {
+                write!(f, "Or {{\n")?;
+                (**lhs).fmt(f, indent + 1)?;
+                (**rhs).fmt(f, indent + 1)?;
+                write_indent(f, indent)?;
+                write!(f, "}}\n")
+            }
+            FilterExpression::And { lhs, rhs } => {
+                write!(f, "And {{\n")?;
+                (**lhs).fmt(f, indent + 1)?;
+                (**rhs).fmt(f, indent + 1)?;
+                write_indent(f, indent)?;
+                write!(f, "}}\n")
+            }
+            FilterExpression::Not { expr } => {
+                write!(f, "Not {{\n")?;
+                (**expr).fmt(f, indent + 1)?;
+                write_indent(f, indent)?;
+                write!(f, "}}\n")
+            }
+            FilterExpression::Comparison { lhs, rhs, op } => {
+                write!(f, "{} {{\n", op.to_string())?;
+                lhs.fmt(f, indent + 1)?;
+                rhs.fmt(f, indent + 1)?;
+                write_indent(f, indent)?;
+                write!(f, "}}\n")
+            }
+            FilterExpression::BoolParam { id } => write!(f, "param{id}\n")
+        }
+    }
+}
+
+impl Display for FilterExpression {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        self.fmt(f, 0)
+    }
+}
+
+#[derive(Debug)]
+pub enum Comparable {
+    Param { id: usize },
+    Literal { value: LiteralValue },
+}
+
+impl Comparable {
+    fn fmt(&self, f: &mut Formatter, indent: u16) -> fmt::Result {
+        match self {
+            Comparable::Param { id } => {
+                write_indent(f, indent)?;
+                write!(f, "param{id}\n")
+            }
+            Comparable::Literal { value } => {
+                value.fmt(f, indent)
+            }
+        }
+    }
+}
+
+impl Display for Comparable {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        self.fmt(f, 0)
+    }
+}
+
+
+#[derive(Debug)]
+pub enum LiteralValue {
+    String(String),
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+    Null,
+}
+
+impl LiteralValue {
+    fn fmt(&self, f: &mut Formatter, indent: u16) -> fmt::Result {
+        write_indent(f, indent)?;
+        match self {
+            LiteralValue::String(str) => {
+                write!(f, "\"{str}\"\n")
+            }
+            LiteralValue::Int(int) => {
+                write!(f, "{int}\n")
+            }
+            LiteralValue::Float(float) => {
+                write!(f, "{float}\n")
+            }
+            LiteralValue::Bool(bool) => {
+                write!(f, "{bool}\n")
+            }
+            LiteralValue::Null => {
+                write!(f, "null\n")
+            }
+        }
+    }
+}
+
+impl Display for LiteralValue {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        self.fmt(f, 0)
+    }
+}
+
+#[derive(Debug)]
+pub enum ComparisonOp {
+    EqualTo,
+    NotEqualTo,
+    LesserOrEqualTo,
+    GreaterOrEqualTo,
+    LessThan,
+    GreaterThan,
+}
+
+impl Display for ComparisonOp {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
     }
 }
 

@@ -1,19 +1,21 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 
-use rsonpath_syntax::Selector;
-
-use crate::ir::{Instruction, Procedure, Query};
+use crate::ir::{Comparable, ComparisonOp, FilterExpression, FilterProcedure, Instruction, LiteralValue, Procedure, Query};
+use crate::ir::Comparable::{Literal, Param};
+use crate::ir::FilterExpression::{And, BoolParam, Comparison, Not, Or};
 use crate::ir::Instruction::{Continue, ExecuteProcedureOnChild, ForEachElement, ForEachMember,
                              IfCurrentIndexEquals, IfCurrentIndexFromEndEquals,
                              IfCurrentMemberNameEquals, SaveCurrentNodeDuringTraversal,
                              TraverseCurrentNodeSubtree};
+use crate::ir::LiteralValue::{Bool, Float, Int, Null};
 
 pub struct IRGenerator<'a> {
     query_syntax: &'a rsonpath_syntax::JsonPathQuery,
     generated_procedures: HashMap<Vec<usize>, Procedure>,
     procedures_to_generate: HashSet<Vec<usize>>,
-    procedure_queue: VecDeque<Vec<usize>>
+    procedure_queue: VecDeque<Vec<usize>>,
+    filter_generator: FilterGenerator
 }
 
 impl IRGenerator<'_> {
@@ -22,7 +24,8 @@ impl IRGenerator<'_> {
             query_syntax,
             generated_procedures: HashMap::new(),
             procedures_to_generate: HashSet::new(),
-            procedure_queue: VecDeque::new()
+            procedure_queue: VecDeque::new(),
+            filter_generator: FilterGenerator::new()
         }
     }
 
@@ -40,7 +43,8 @@ impl IRGenerator<'_> {
                             }
                         ],
                     }
-                ]
+                ],
+                filter_procedures: vec![]
             }
         } else {
             self.procedure_queue.push_back(entry_procedure_sig.clone());
@@ -50,12 +54,16 @@ impl IRGenerator<'_> {
             }
             let mut procedures: Vec<Procedure> = self.generated_procedures.into_values().collect();
             procedures.sort_by(|a, b| a.name.cmp(&b.name));
-            Query { procedures }
+            Query {
+                procedures,
+                filter_procedures: self.filter_generator
+                    .generate_filter_procedures(self.query_syntax),
+            }
         }
     }
 
     fn generate_procedure(&mut self, sig: &Vec<usize>) {
-        let selectors: Vec<(&Selector, usize, usize)> = sig.iter()
+        let selectors: Vec<(&rsonpath_syntax::Selector, usize, usize)> = sig.iter()
             .map(|i| (self.query_syntax.segments()[*i].selectors(), i))
             .flat_map(
                 |(selectors, segment)| selectors.iter().enumerate().map(
@@ -75,9 +83,10 @@ impl IRGenerator<'_> {
         });
     }
 
+
     fn generate_object_selectors(
         &mut self,
-        selectors: &Vec<(&Selector, usize, usize)>,
+        selectors: &Vec<(&rsonpath_syntax::Selector, usize, usize)>,
     ) -> Vec<Instruction> {
         let descendant_segments = self.get_descendant_segments(selectors);
         let wildcard_selectors = Self::get_wildcard_occurrences(selectors);
@@ -114,7 +123,7 @@ impl IRGenerator<'_> {
 
     fn generate_array_selectors(
         &mut self,
-        selectors: &Vec<(&Selector, usize, usize)>,
+        selectors: &Vec<(&rsonpath_syntax::Selector, usize, usize)>,
     ) -> Vec<Instruction> {
         let descendant_segments = self.get_descendant_segments(selectors);
         let wildcard_selectors = Self::get_wildcard_occurrences(selectors);
@@ -253,14 +262,14 @@ impl IRGenerator<'_> {
         instructions
     }
 
-    fn get_descendant_segments(&self, selectors: &Vec<(&Selector, usize, usize)>) -> Vec<usize> {
+    fn get_descendant_segments(&self, selectors: &Vec<(&rsonpath_syntax::Selector, usize, usize)>) -> Vec<usize> {
         selectors.iter()
             .filter(|(_, segment, _)| self.query_syntax.segments()[*segment].is_descendant())
             .map(|(_, segment, _)| *segment)
             .collect()
     }
 
-    fn get_wildcard_occurrences(selectors: &Vec<(&Selector, usize, usize)>) -> Vec<(usize, usize)> {
+    fn get_wildcard_occurrences(selectors: &Vec<(&rsonpath_syntax::Selector, usize, usize)>) -> Vec<(usize, usize)> {
         selectors.iter()
             .filter(|(selector, _, _)| selector.is_wildcard())
             .map(|(_, segment, pos)| (*segment, *pos))
@@ -303,8 +312,8 @@ impl IRGenerator<'_> {
     }
 
     fn create_selector_occurrences_map<T: Eq + Hash>(
-        selectors: &Vec<(&Selector, usize, usize)>,
-        key: fn(&Selector) -> Option<T>,
+        selectors: &Vec<(&rsonpath_syntax::Selector, usize, usize)>,
+        key: fn(&rsonpath_syntax::Selector) -> Option<T>,
     ) -> HashMap<T, Vec<(usize, usize)>> {
         let mut map: HashMap<T, Vec<(usize, usize)>> = HashMap::new();
         for (selector, segment, pos) in selectors.iter() {
@@ -330,16 +339,16 @@ impl IRGenerator<'_> {
         }
     }
 
-    fn extract_name_from_selector(selector: &Selector) -> Option<String> {
-        if let Selector::Name(name_json_str) = selector {
+    fn extract_name_from_selector(selector: &rsonpath_syntax::Selector) -> Option<String> {
+        if let rsonpath_syntax::Selector::Name(name_json_str) = selector {
             Some(name_json_str.unquoted().to_string())
         } else {
             None
         }
     }
 
-    fn extract_index_from_selector(selector: &Selector) -> Option<i64> {
-        if let Selector::Index(index_syntax) = selector {
+    fn extract_index_from_selector(selector: &rsonpath_syntax::Selector) -> Option<i64> {
+        if let rsonpath_syntax::Selector::Index(index_syntax) = selector {
             Some(Self::get_index_syntax_as_i64(index_syntax))
         } else {
             None
@@ -364,5 +373,135 @@ impl IRGenerator<'_> {
         v.sort();
         v.dedup();
         v
+    }
+}
+
+struct FilterGenerator {
+    subquery_count: usize,
+}
+
+impl FilterGenerator {
+    pub fn new() -> FilterGenerator {
+        FilterGenerator {
+            subquery_count: 0
+        }
+    }
+
+    pub fn generate_filter_procedures(
+        &mut self,
+        query_syntax: &rsonpath_syntax::JsonPathQuery,
+    ) -> Vec<FilterProcedure> {
+        let mut filter_procedures = Vec::new();
+        for (filter_expression, id) in Self::get_all_filters(query_syntax) {
+            filter_procedures.push(self.generate_filter_procedure(filter_expression, id));
+        }
+        filter_procedures
+    }
+
+    fn get_all_filters(
+        query_syntax: &rsonpath_syntax::JsonPathQuery
+    ) -> Vec<(&rsonpath_syntax::LogicalExpr, (usize, usize))> {
+        let mut filters = Vec::new();
+        for (i, segment) in query_syntax.segments().iter().enumerate() {
+            let selectors = segment.selectors();
+            for (j, selector) in selectors.iter().enumerate() {
+                if let rsonpath_syntax::Selector::Filter(filter_expression) = selector {
+                    filters.push((filter_expression, (i, j)));
+                }
+            }
+        }
+        filters
+    }
+
+    fn generate_filter_procedure(
+        &mut self,
+        filter_expression: &rsonpath_syntax::LogicalExpr,
+        id: (usize, usize),
+    ) -> FilterProcedure {
+        self.subquery_count = 0;
+        let expression = self.generate_filter_expr(filter_expression);
+        FilterProcedure {
+            name: format!("Filter_{}_{}", id.0, id.1),
+            arity: self.subquery_count,
+            expression,
+        }
+    }
+
+    fn generate_filter_expr(&mut self, filter_expr: &rsonpath_syntax::LogicalExpr) -> FilterExpression {
+        match filter_expr {
+            rsonpath_syntax::LogicalExpr::Or(lhs, rhs) => {
+                Or {
+                    lhs: Box::new(self.generate_filter_expr(lhs)),
+                    rhs: Box::new(self.generate_filter_expr(rhs)),
+                }
+            }
+            rsonpath_syntax::LogicalExpr::And(lhs, rhs) => {
+                And {
+                    lhs: Box::new(self.generate_filter_expr(lhs)),
+                    rhs: Box::new(self.generate_filter_expr(rhs)),
+                }
+            }
+            rsonpath_syntax::LogicalExpr::Not(expr) => {
+                Not { expr: Box::new(self.generate_filter_expr(expr)) }
+            }
+            rsonpath_syntax::LogicalExpr::Comparison(comparison_expr) => {
+                Comparison {
+                    lhs: self.generate_comparable(comparison_expr.lhs()),
+                    rhs: self.generate_comparable(comparison_expr.rhs()),
+                    op: self.generate_comparison_op(comparison_expr.op()),
+                }
+            }
+            rsonpath_syntax::LogicalExpr::Test { .. } => {
+                self.subquery_count += 1;
+                BoolParam { id: self.subquery_count }
+            }
+        }
+    }
+
+    fn generate_comparable(&mut self, comparable: &rsonpath_syntax::Comparable) -> Comparable {
+        match comparable {
+            rsonpath_syntax::Comparable::Literal(literal) => {
+                Literal { value: self.generate_literal(literal) }
+            }
+            rsonpath_syntax::Comparable::AbsoluteSingularQuery { .. }
+            | rsonpath_syntax::Comparable::RelativeSingularQuery { .. } => {
+                self.subquery_count += 1;
+                Param { id: self.subquery_count }
+            }
+        }
+    }
+
+    fn generate_literal(&self, literal_syntax: &rsonpath_syntax::Literal) -> LiteralValue {
+        match literal_syntax {
+            rsonpath_syntax::Literal::String(json_str) => {
+                LiteralValue::String(json_str.unquoted().to_string())
+            },
+            rsonpath_syntax::Literal::Number(json_num) => {
+                match json_num {
+                    rsonpath_syntax::num::JsonNumber::Int(json_int) => {
+                        Int(json_int.as_i64())
+                    }
+                    rsonpath_syntax::num::JsonNumber::Float(json_float) => {
+                        Float(json_float.as_f64())
+                    }
+                }
+            }
+            rsonpath_syntax::Literal::Bool(bool_value) => Bool(*bool_value),
+            rsonpath_syntax::Literal::Null => Null
+        }
+    }
+
+    fn generate_comparison_op(
+        &self,
+        comparison_op_syntax: rsonpath_syntax::ComparisonOp,
+    ) -> ComparisonOp {
+        match comparison_op_syntax {
+            rsonpath_syntax::ComparisonOp::EqualTo => ComparisonOp::EqualTo,
+            rsonpath_syntax::ComparisonOp::NotEqualTo => ComparisonOp::NotEqualTo,
+            rsonpath_syntax::ComparisonOp::LesserOrEqualTo => ComparisonOp::LesserOrEqualTo,
+            rsonpath_syntax::ComparisonOp::GreaterOrEqualTo => ComparisonOp::GreaterOrEqualTo,
+            rsonpath_syntax::ComparisonOp::LessThan => ComparisonOp::LessThan,
+            rsonpath_syntax::ComparisonOp::GreaterThan => ComparisonOp::GreaterThan
+        }
     }
 }
