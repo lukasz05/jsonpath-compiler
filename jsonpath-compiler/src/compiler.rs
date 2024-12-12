@@ -9,13 +9,15 @@ mod code_generator;
 
 pub struct ToOnDemandCompiler<'a> {
     query: &'a Query,
+    mmap: bool,
     code_generator: CodeGenerator,
 }
 
 impl ToOnDemandCompiler<'_> {
-    pub fn new(query: &Query) -> ToOnDemandCompiler {
+    pub fn new(query: &Query, mmap: bool) -> ToOnDemandCompiler {
         ToOnDemandCompiler {
             query,
+            mmap,
             code_generator: CodeGenerator::new(),
         }
     }
@@ -46,10 +48,14 @@ impl ToOnDemandCompiler<'_> {
             //"#define SIMDJSON_VERBOSE_LOGGING 1",
             "",
             "#include <iostream>",
+            "#include <fstream>",
             "#include <vector>",
             "#include <queue>",
             "#include <string>",
             "#include <algorithm>",
+            "#include <fcntl.h>",
+            "#include <sys/mman.h>",
+            "#include <sys/stat.h>",
             "#include <simdjson.h>",
             "",
             "using namespace std;",
@@ -57,11 +63,15 @@ impl ToOnDemandCompiler<'_> {
             ""
         ]);
         self.generate_procedures_declarations(procedure_names);
-        self.code_generator.write_lines(&["", "int main()"]);
+        self.code_generator.write_lines(&["", "int main(int argc, char **argv)"]);
         self.code_generator.start_block();
+        if self.mmap {
+            self.code_generator.write_line("const auto input = map_input(argv[1]);");
+        } else {
+            self.code_generator.write_line("const auto input = read_input(argv[1]);");
+        }
         self.code_generator.write_lines(&[
-            "string input(istreambuf_iterator<char>(cin), {});",
-            "auto json = padded_string(input);",
+            "const auto json = padded_string(input);",
             "ondemand::parser parser;",
             "auto root_node = parser.iterate(json);",
             "vector<shared_ptr<ostringstream>> results_in_progress;",
@@ -78,11 +88,35 @@ impl ToOnDemandCompiler<'_> {
             "first = false;"
         ]);
         self.code_generator.end_block();
-
         self.code_generator.write_lines(&[
             r#"cout << "]\n";"#,
             "return 0;"
         ]);
+        self.code_generator.end_block();
+        self.code_generator.write_line("");
+        if self.mmap {
+            self.code_generator.write_line("string_view map_input(const char* filename)");
+            self.code_generator.start_block();
+            self.code_generator.write_lines(&[
+                "const int fd = open(filename, O_RDONLY);",
+                "if (fd == -1) exit(1);",
+                "struct stat sb{};",
+                "if (fstat(fd, &sb) == -1) exit(1);",
+                "const size_t length = sb.st_size;",
+                "const auto addr = static_cast<const char*>(mmap(nullptr, length, PROT_READ, MAP_PRIVATE, fd, 0u));",
+                "if (addr == MAP_FAILED) exit(1);",
+                "return {addr};"
+            ]);
+        } else {
+            self.code_generator.write_line("string read_input(const char* filename)");
+            self.code_generator.start_block();
+            self.code_generator.write_lines(&[
+                "ostringstream buf;",
+                "ifstream input (filename);",
+                "buf << input.rdbuf();",
+                "return buf.str();"
+            ]);
+        }
         self.code_generator.end_block();
         self.code_generator.write_lines(&[
             "",
@@ -272,6 +306,12 @@ impl ToOnDemandCompiler<'_> {
     }
 
     fn generate_procedures_declarations(&mut self, procedure_names: &Vec<&String>) {
+        if self.mmap {
+            self.code_generator.write_line("string_view map_input(const char* filename);");
+        } else {
+            self.code_generator.write_line("string read_input(const char* filename);");
+        }
+        self.code_generator.write_line("");
         for name in procedure_names {
             self.code_generator.write_line(
                 &format!("{};", Self::get_procedure_signature(name))
