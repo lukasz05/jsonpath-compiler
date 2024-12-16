@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
-
 use crate::ir::{Comparable, ComparisonOp, FilterExpression, FilterProcedure, Instruction, LiteralValue, Procedure, Query};
 use crate::ir::Comparable::{Literal, Param};
 use crate::ir::FilterExpression::{And, BoolParam, Comparison, Not, Or};
@@ -294,8 +293,20 @@ impl IRGenerator<'_> {
             .collect()
     }
 
+    fn is_descendant(&self, segment: usize) -> bool {
+        self.query_syntax.segments()[segment].is_descendant()
+    }
+
     fn get_or_create_procedure_for_segments(&mut self, mut segments: Vec<usize>) -> String {
         segments = Self::sort_and_deduplicate(segments);
+        let max_descendant_segment = segments.clone().into_iter()
+            .filter(|segment| self.is_descendant(*segment))
+            .max();
+        if max_descendant_segment.is_some() {
+            segments = segments.into_iter()
+                .filter(|segment| !self.is_descendant(*segment) || *segment == max_descendant_segment.unwrap())
+                .collect()
+        }
         if !self.generated_procedures.contains_key(&segments)
             && !self.procedures_to_generate.contains(&segments) {
             self.procedures_to_generate.insert(segments.clone());
