@@ -293,7 +293,9 @@ impl ToOnDemandCompiler<'_> {
         self.code_generator.start_block();
         self.code_generator.write_lines(&[
             r#"if (!first) *buf_ptr += ", ";"#,
-            r#"*buf_ptr += format("\"{}\": ", key);"#
+            r#"*buf_ptr += "\"";"#,
+            "*buf_ptr += key;",
+            r#"*buf_ptr += "\"";"#
         ]);
         self.code_generator.end_block();
         self.compile_instructions(instructions, "field.value()");
