@@ -34,8 +34,8 @@ impl ToOnDemandCompiler<'_> {
 
     fn get_procedure_signature(name: &String) -> String {
         format!(
-            "void {}(ondemand::value node, vector<shared_ptr<ostringstream>> &results_in_progress, \
-             vector<shared_ptr<ostringstream>> &all_results)",
+            "void {}(ondemand::value &node, vector<string*> &results_in_progress, \
+             vector<string*> &all_results)",
             name.to_lowercase()
         )
     }
@@ -73,18 +73,18 @@ impl ToOnDemandCompiler<'_> {
         self.code_generator.write_lines(&[
             "const auto json = padded_string(input);",
             "ondemand::parser parser;",
-            "auto root_node = parser.iterate(json);",
-            "vector<shared_ptr<ostringstream>> results_in_progress;",
-            "vector<shared_ptr<ostringstream>> all_results;",
+            "ondemand::value root_node = parser.iterate(json).get_value().value();",
+            "vector<string*> results_in_progress;",
+            "vector<string*> all_results;",
             "selectors_0(root_node, results_in_progress, all_results);",
             r#"cout << "[\n";"#,
             "bool first = true;",
-            r#"for (const auto &stream_ptr : all_results)"#
+            r#"for (const auto &buf_ptr : all_results)"#
         ]);
         self.code_generator.start_block();
         self.code_generator.write_lines(&[
             r#"if (!first) cout << ",";"#,
-            r#"cout << "  " << stream_ptr->str();"#,
+            r#"cout << "  " << *buf_ptr;"#,
             "first = false;"
         ]);
         self.code_generator.end_block();
@@ -120,19 +120,19 @@ impl ToOnDemandCompiler<'_> {
         self.code_generator.end_block();
         self.code_generator.write_lines(&[
             "",
-            "void add_to_all_streams(vector<shared_ptr<ostringstream>> &streams, string_view str)"
+            "void add_to_all_bufs(const vector<string*> &bufs, const string_view str)"
         ]);
         self.code_generator.start_block();
         self.code_generator
-            .write_line("for (const auto &stream_ptr : streams) *stream_ptr << str;");
+            .write_line("for (const auto &buf_ptr : bufs) *buf_ptr += str;");
         self.code_generator.end_block();
         self.code_generator.write_lines(&[
             "",
-            "void traverse_and_save_selected_nodes(ondemand::value node, vector<shared_ptr<ostringstream>> &results_in_progress)"
+            "void traverse_and_save_selected_nodes(ondemand::value &node, vector<string*> &results_in_progress)"
         ]);
         self.code_generator.start_block();
         self.code_generator.write_line("if (!results_in_progress.empty())");
-        self.code_generator.write_extra_indented_line("add_to_all_streams(results_in_progress, node.raw_json());");
+        self.code_generator.write_extra_indented_line("add_to_all_bufs(results_in_progress, node.raw_json());");
         self.code_generator.end_block();
         self.code_generator.write_line("");
     }
@@ -216,9 +216,9 @@ impl ToOnDemandCompiler<'_> {
             }
             SaveCurrentNodeDuringTraversal { instruction } => {
                 self.code_generator.write_lines(&[
-                    "shared_ptr<ostringstream> stream_ptr = make_shared<ostringstream>();",
-                    "all_results.push_back(stream_ptr);",
-                    "results_in_progress.push_back(stream_ptr);"
+                    "string* buf_ptr = new string();",
+                    "all_results.push_back(buf_ptr);",
+                    "results_in_progress.push_back(buf_ptr);"
                 ]);
                 self.compile_instruction(instruction, current_node);
                 self.code_generator.write_line("results_in_progress.pop_back();");
@@ -246,7 +246,7 @@ impl ToOnDemandCompiler<'_> {
         ]);
         self.code_generator.start_block();
         self.code_generator.write_lines(&[
-            r#"add_to_all_streams(results_in_progress, string_view("["));"#,
+            r#"add_to_all_bufs(results_in_progress, string_view("["));"#,
             "bool first = true;",
             "size_t index = 0;"
         ]);
@@ -259,14 +259,14 @@ impl ToOnDemandCompiler<'_> {
         self.code_generator.start_block();
         self.code_generator.write_lines(&[
             "index++;",
-            r#"add_to_all_streams(results_in_progress, string_view(", "));"#,
+            r#"add_to_all_bufs(results_in_progress, string_view(", "));"#,
         ]);
         self.code_generator.end_block();
         self.code_generator.write_line("first = false;");
         self.compile_instructions(instructions, "element");
         self.code_generator.end_block();
         self.code_generator.write_line(
-            r#"add_to_all_streams(results_in_progress, string_view("]"));"#,
+            r#"add_to_all_bufs(results_in_progress, string_view("]"));"#,
         );
         self.code_generator.end_block();
     }
@@ -281,26 +281,26 @@ impl ToOnDemandCompiler<'_> {
         ]);
         self.code_generator.start_block();
         self.code_generator.write_lines(&[
-            r#"add_to_all_streams(results_in_progress, string_view("{"));"#,
+            r#"add_to_all_bufs(results_in_progress, string_view("{"));"#,
             "bool first = true;",
             "for (ondemand::field field : object)"
         ]);
         self.code_generator.start_block();
         self.code_generator.write_lines(&[
             "string_view key = field.unescaped_key();",
-            "for (const auto &stream_ptr : results_in_progress)"
+            "for (const auto &buf_ptr : results_in_progress)"
         ]);
         self.code_generator.start_block();
         self.code_generator.write_lines(&[
-            r#"if (!first) *stream_ptr << ", ";"#,
-            r#"*stream_ptr << "\"" << key << "\": ";"#
+            r#"if (!first) *buf_ptr += ", ";"#,
+            r#"*buf_ptr += format("\"{}\": ", key);"#
         ]);
         self.code_generator.end_block();
         self.compile_instructions(instructions, "field.value()");
         self.code_generator.write_line("first = false;");
         self.code_generator.end_block();
         self.code_generator.write_line(
-            r#"add_to_all_streams(results_in_progress, string_view("}"));"#,
+            r#"add_to_all_bufs(results_in_progress, string_view("}"));"#,
         );
         self.code_generator.end_block();
     }
