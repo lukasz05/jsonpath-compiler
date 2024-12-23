@@ -7,3 +7,5 @@ edition = "2021"
 rsonpath-syntax = "0.3.1"
 itertools = "0.13.0"
 clap = { version = "4.5.23", features = ["derive"] }
+askama = "0.12.1"
+clang-format = "0.3.0"

@@ -30,6 +30,10 @@ struct Args {
     /// Memory-map the input document during query execution.
     #[arg(long, action = clap::ArgAction::SetTrue)]
     mmap: bool,
+
+    // Print logs during query execution.
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    logging: bool
 }
 
 fn main() -> Result<ExitCode, std::io::Error> {
@@ -45,7 +49,7 @@ fn main() -> Result<ExitCode, std::io::Error> {
                 let mut file = File::create(ir_output_path)?;
                 file.write_all(query_ir.to_string().as_bytes())?;
             }
-            let compiler = ToOnDemandCompiler::new(&query_ir, args.mmap);
+            let compiler = ToOnDemandCompiler::new(&query_ir, args.logging, args.mmap);
             let code = compiler.compile();
             if let Some(output_path) = args.output {
                 let mut file = File::create(output_path)?;
