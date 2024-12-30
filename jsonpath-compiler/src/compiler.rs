@@ -6,6 +6,8 @@ use crate::ir::Instruction::{ForEachElement, ForEachMember,
                              IfCurrentIndexEquals, IfCurrentIndexFromEndEquals,
                              IfCurrentMemberNameEquals};
 
+type NamedQuery<'a> = (String, &'a Query);
+
 #[derive(Template)]
 #[template(path = "ondemand/standalone.cpp", escape = "none")]
 struct ToOnDemandStandaloneTemplate<'a> {
@@ -26,18 +28,49 @@ impl ToOnDemandStandaloneTemplate<'_> {
     }
 }
 
+#[derive(Template)]
+#[template(path = "ondemand/header.cpp", escape = "none")]
+struct ToOnDemandHeaderTemplate<'a> {
+    filename: &'a str,
+    logging: bool,
+    procedures: Vec<ProcedureTemplate<'a>>,
+    query_names: Vec<String>,
+}
+
+impl ToOnDemandHeaderTemplate<'_> {
+    fn new<'a>(queries: Vec<NamedQuery<'a>>, logging: bool, filename: &'a str) -> ToOnDemandHeaderTemplate<'a> {
+        let procedures = queries.iter()
+            .flat_map(|(name, query)| query.procedures.iter().map(|p| (name.to_string(), p)))
+            .map(|(name, procedure)|
+            ProcedureTemplate::new_with_name(&procedure, format!("{name}_{}", procedure.name))
+            )
+            .collect();
+        ToOnDemandHeaderTemplate {
+            logging,
+            filename,
+            procedures,
+            query_names: queries.iter().map(|(name, _)| name.to_string()).collect(),
+        }
+    }
+}
+
+
 
 #[derive(Template)]
 #[template(path = "ondemand/procedure.cpp", escape = "none")]
 struct ProcedureTemplate<'a> {
-    name: &'a str,
+    name: String,
     instructions: Vec<InstructionTemplate<'a>>,
 }
 
 impl ProcedureTemplate<'_> {
     fn new(procedure: &Procedure) -> ProcedureTemplate {
+        Self::new_with_name(procedure, procedure.name.clone())
+    }
+
+    fn new_with_name(procedure: &Procedure, name: String) -> ProcedureTemplate {
         ProcedureTemplate {
-            name: &procedure.name,
+            name,
             instructions: procedure.instructions.iter()
                 .map(|instruction| InstructionTemplate::new(instruction, "node"))
                 .collect(),
@@ -73,28 +106,64 @@ impl InstructionTemplate<'_> {
 }
 
 pub struct ToOnDemandCompiler<'a> {
-    query: &'a Query,
+    queries: Vec<NamedQuery<'a>>,
+    standalone: bool,
     logging: bool,
-    mmap: bool
+    mmap: bool,
+    filename: Option<String>
 }
 
 
 impl ToOnDemandCompiler<'_> {
-    pub fn new(query: &Query, logging: bool, mmap: bool) -> ToOnDemandCompiler {
+    pub fn new_standalone(
+        query: NamedQuery,
+        logging: bool,
+        mmap: bool,
+        filename: Option<String>,
+    ) -> ToOnDemandCompiler {
         ToOnDemandCompiler {
-            query,
+            queries: vec![query],
+            standalone: true,
             logging,
-            mmap
+            mmap,
+            filename
+        }
+    }
+
+    pub fn new_header(
+        queries: Vec<NamedQuery>,
+        logging: bool,
+        filename: Option<String>,
+    ) -> ToOnDemandCompiler {
+        ToOnDemandCompiler {
+            queries,
+            standalone: false,
+            logging,
+            mmap: false,
+            filename,
         }
     }
 
     pub fn compile(self) -> String {
-        let template = ToOnDemandStandaloneTemplate::new(
-            self.query,
-            self.logging,
-            self.mmap,
-        );
-        let code = template.render().unwrap();
+        let code: String;
+        if self.standalone {
+            let template = ToOnDemandStandaloneTemplate::new(
+                self.queries[0].1,
+                self.logging,
+                self.mmap,
+            );
+            code = template.render().unwrap();
+        } else {
+            let filename = if self.filename.is_some() { self.filename.unwrap() } else {
+                String::from("query.hpp")
+            };
+            let template = ToOnDemandHeaderTemplate::new(
+                self.queries,
+                self.logging,
+                &filename,
+            );
+            code = template.render().unwrap();
+        }
         clang_format_with_style(&code, &ClangFormatStyle::Microsoft).unwrap()
     }
 }
