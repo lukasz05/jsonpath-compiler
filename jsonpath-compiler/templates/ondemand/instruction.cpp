@@ -19,12 +19,16 @@
             {% call compile_instructions(instructions, current_node) %}
         }
     {% when Instruction::ExecuteProcedureOnChild with { name } %}
-        {{name|lower}}({{current_node}}, results_in_progress, all_results);
+        {% if !query_name.is_empty() %}
+            {{query_name}}_{{name|lower}}({{current_node}}, results_in_progress, all_results);
+        {% else %}
+            {{name|lower}}({{current_node}}, results_in_progress, all_results);
+        {% endif %}
     {% when Instruction::SaveCurrentNodeDuringTraversal with { instruction } %}
         string* buf_ptr = new string();
         all_results.push_back(buf_ptr);
         results_in_progress.push_back(buf_ptr);
-        {% let template = InstructionTemplate::new(instruction, current_node) %}
+        {% let template = InstructionTemplate::new(instruction, current_node, query_name) %}
         {{ template.render().unwrap() }}
         results_in_progress.pop_back();
     {% when Instruction::Continue %}
@@ -35,7 +39,7 @@
 
 {% macro compile_instructions(instructions, current_node) %}
     {% for instruction in instructions %}
-    {% let template = InstructionTemplate::new(instruction, current_node) %}
+    {% let template = InstructionTemplate::new(instruction, current_node, query_name) %}
         {{ template.render().unwrap() }}
     {% endfor %}
 {% endmacro %}

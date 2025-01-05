@@ -74,18 +74,18 @@ pub enum Instruction {
 
 impl Instruction {
     pub fn is_object_member_iteration(&self) -> bool {
-        if let Instruction::ForEachMember { .. } = self {
-            true
-        } else {
-            false
+        match self {
+            Instruction::ForEachMember { .. } |
+            Instruction::SaveCurrentNodeDuringTraversal { .. } => true,
+            _ => false
         }
     }
 
     pub fn is_array_element_iteration(&self) -> bool {
-        if let Instruction::ForEachElement { .. } = self {
-            true
-        } else {
-            false
+        match self {
+            Instruction::ForEachElement { .. } |
+            Instruction::SaveCurrentNodeDuringTraversal { .. } => true,
+            _ => false
         }
     }
 

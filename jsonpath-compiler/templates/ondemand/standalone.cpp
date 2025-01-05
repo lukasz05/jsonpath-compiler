@@ -1,4 +1,3 @@
-{% import "macros.cpp" as macros %}
 {% if logging %}
 #define SIMDJSON_VERBOSE_LOGGING 1
 {% endif %}
@@ -12,7 +11,7 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <simdjson.h>
+#include "simdjson.h"
 
 using namespace std;
 using namespace simdjson;
@@ -36,7 +35,8 @@ int main(int argc, char **argv)
 {% endif %}
     const auto json = padded_string(input);
     ondemand::parser parser;
-    ondemand::value root_node = parser.iterate(json).get_value().value();
+    ondemand::document doc = parser.iterate(json);
+    ondemand::value root_node = doc.get_value().value();
     vector<string*> results_in_progress;
     vector<string*> all_results;
     selectors_0(root_node, results_in_progress, all_results);

@@ -1,13 +1,15 @@
 #![allow(dead_code)]
 
+use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::Parser;
 use rsonpath_syntax::JsonPathQuery;
 
-use crate::compiler::ToOnDemandCompiler;
+use crate::compiler::{RustBindingsGenerator, ToOnDemandCompiler};
 use crate::ir::generator::IRGenerator;
 use crate::ir::Query;
 
@@ -45,7 +47,11 @@ struct Args {
 
     // Print logs during query execution.
     #[arg(long, action = clap::ArgAction::SetTrue)]
-    logging: bool
+    logging: bool,
+
+    // Generate Rust bindings for query procedures.
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    rust_bindings: bool
 }
 
 fn main() -> Result<ExitCode, std::io::Error> {
@@ -79,13 +85,31 @@ fn main() -> Result<ExitCode, std::io::Error> {
 
     let code = compile(&query_irs, &args);
     if let Some(output_path) = args.output {
-        let mut file = File::create(output_path)?;
-        file.write_all(code.as_bytes())?;
+        write_to_file(&output_path, code)?;
+        if args.rust_bindings {
+            let bindings_generator = RustBindingsGenerator::new(
+                queries.iter().map(|(name, _)| name.to_string()).collect()
+            );
+            let bindings_code = bindings_generator.generate();
+            let mut bindings_file_path = PathBuf::from(&output_path);
+            bindings_file_path.set_file_name("bindings");
+            bindings_file_path.set_extension("rs");
+            let bindings_file_path = bindings_file_path.to_str().unwrap();
+            write_to_file(bindings_file_path, bindings_code)?;
+        }
     } else {
         print!("{code}");
     }
 
     Ok(ExitCode::SUCCESS)
+}
+
+fn write_to_file(file_path: &str, content: String) -> Result<(), std::io::Error> {
+    let file_path = PathBuf::from(file_path);
+    if let Some(p) = file_path.parent() {
+        fs::create_dir_all(p)?
+    };
+    fs::write(file_path, content)
 }
 
 type NamedRawQuery = (String, String);
@@ -112,8 +136,8 @@ fn parse_queries(
     let mut parsed_queries = Vec::new();
     for (name, parse_result) in parse_results {
         match parse_result {
-            Ok(query_syntax) => parsed_queries.push((name, query_syntax)),
-            Err(err) => parse_errors.push((name, err))
+            Ok(query_syntax) => parsed_queries.push((name.to_string(), query_syntax)),
+            Err(err) => parse_errors.push((name.to_string(), err))
         }
     }
     return if !parse_errors.is_empty() {
@@ -123,15 +147,15 @@ fn parse_queries(
     }
 }
 
-fn generate_ir(
+fn generate_ir<'a>(
     parsed_queries: &Vec<NamedParsedQuery>,
     ir_output_path: Option<String>,
 ) -> Result<Vec<NamedQuery>, std::io::Error> {
     let mut query_irs = Vec::new();
-    for (name, parsed_query) in parsed_queries {
+    for (name, parsed_query) in parsed_queries.to_owned() {
         let ir_generator = IRGenerator::new(&parsed_query);
         let query_ir = ir_generator.generate();
-        query_irs.push((name.to_string(), query_ir));
+        query_irs.push((name, query_ir));
     }
     if let Some(ir_output_path) = ir_output_path {
         write_ir_to_file(&query_irs, ir_output_path)?;
@@ -146,16 +170,18 @@ fn compile(
     let compiler = if args.standalone {
         let (name, query) = queries.first().unwrap();
         ToOnDemandCompiler::new_standalone(
-            (name.to_string(), query),
+            (name, query),
             args.logging,
             args.mmap,
-            args.output.clone(),
         )
     } else {
-        ToOnDemandCompiler::new_header(
-            queries.iter().map(|(name, query_ir)| (name.to_string(), query_ir)).collect(),
+        let filename = args.output.clone()
+            .map(|f| Path::new(&f).file_name().unwrap().to_str().unwrap().to_string());
+        ToOnDemandCompiler::new_lib(
+            queries.iter().map(|(name, query_ir)| (name.as_str(), query_ir)).collect(),
             args.logging,
-            args.output.clone(),
+            args.rust_bindings,
+            filename,
         )
     };
     compiler.compile()

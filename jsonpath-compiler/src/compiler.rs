@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+use std::string::ToString;
 use askama::Template;
 use clang_format::{clang_format_with_style, ClangFormatStyle};
 
@@ -6,7 +8,7 @@ use crate::ir::Instruction::{ForEachElement, ForEachMember,
                              IfCurrentIndexEquals, IfCurrentIndexFromEndEquals,
                              IfCurrentMemberNameEquals};
 
-type NamedQuery<'a> = (String, &'a Query);
+type NamedQuery<'a> = (&'a str, &'a Query);
 
 #[derive(Template)]
 #[template(path = "ondemand/standalone.cpp", escape = "none")]
@@ -29,27 +31,36 @@ impl ToOnDemandStandaloneTemplate<'_> {
 }
 
 #[derive(Template)]
-#[template(path = "ondemand/header.cpp", escape = "none")]
-struct ToOnDemandHeaderTemplate<'a> {
+#[template(path = "ondemand/lib.cpp", escape = "none")]
+struct ToOnDemandLibTemplate<'a> {
     filename: &'a str,
     logging: bool,
+    bindings: bool,
     procedures: Vec<ProcedureTemplate<'a>>,
     query_names: Vec<String>,
 }
 
-impl ToOnDemandHeaderTemplate<'_> {
-    fn new<'a>(queries: Vec<NamedQuery<'a>>, logging: bool, filename: &'a str) -> ToOnDemandHeaderTemplate<'a> {
-        let procedures = queries.iter()
-            .flat_map(|(name, query)| query.procedures.iter().map(|p| (name.to_string(), p)))
-            .map(|(name, procedure)|
-            ProcedureTemplate::new_with_name(&procedure, format!("{name}_{}", procedure.name))
-            )
-            .collect();
-        ToOnDemandHeaderTemplate {
+impl ToOnDemandLibTemplate<'_> {
+    fn new<'a>(
+        queries: Vec<NamedQuery<'a>>,
+        logging: bool,
+        bindings: bool,
+        filename: &'a str
+    ) -> ToOnDemandLibTemplate<'a> {
+        let mut procedures = Vec::new();
+        let mut query_names = HashSet::new();
+        for (name, query) in queries {
+            for procedure in &query.procedures {
+                procedures.push(ProcedureTemplate::new_with_query_name(procedure, name));
+                query_names.insert(name.to_string());
+            }
+        }
+        ToOnDemandLibTemplate {
             logging,
+            bindings,
             filename,
             procedures,
-            query_names: queries.iter().map(|(name, _)| name.to_string()).collect(),
+            query_names: query_names.into_iter().collect()
         }
     }
 }
@@ -65,14 +76,20 @@ struct ProcedureTemplate<'a> {
 
 impl ProcedureTemplate<'_> {
     fn new(procedure: &Procedure) -> ProcedureTemplate {
-        Self::new_with_name(procedure, procedure.name.clone())
+        ProcedureTemplate {
+            name: procedure.name.clone(),
+            instructions: procedure.instructions.iter()
+                .map(|instruction| InstructionTemplate::new(instruction, "node", ""))
+                .collect(),
+        }
     }
 
-    fn new_with_name(procedure: &Procedure, name: String) -> ProcedureTemplate {
+    fn new_with_query_name<'a>(procedure: &'a Procedure, query_name: &'a str) -> ProcedureTemplate<'a> {
+        let procedure_name = format!("{}_{}", query_name, procedure.name);
         ProcedureTemplate {
-            name,
+            name: procedure_name,
             instructions: procedure.instructions.iter()
-                .map(|instruction| InstructionTemplate::new(instruction, "node"))
+                .map(|instruction| InstructionTemplate::new(instruction, "node", query_name))
                 .collect(),
         }
     }
@@ -94,13 +111,19 @@ impl ProcedureTemplate<'_> {
 struct InstructionTemplate<'a> {
     instruction: &'a Instruction,
     current_node: &'a str,
+    query_name: &'a str
 }
 
 impl InstructionTemplate<'_> {
-    fn new<'a>(instruction: &'a Instruction, current_node: &'a str) -> InstructionTemplate<'a> {
+    fn new<'a>(
+        instruction: &'a Instruction,
+        current_node: &'a str,
+        query_name: &'a str
+    ) -> InstructionTemplate<'a> {
         InstructionTemplate {
             instruction,
             current_node,
+            query_name
         }
     }
 }
@@ -109,6 +132,7 @@ pub struct ToOnDemandCompiler<'a> {
     queries: Vec<NamedQuery<'a>>,
     standalone: bool,
     logging: bool,
+    bindings: bool,
     mmap: bool,
     filename: Option<String>
 }
@@ -119,26 +143,28 @@ impl ToOnDemandCompiler<'_> {
         query: NamedQuery,
         logging: bool,
         mmap: bool,
-        filename: Option<String>,
     ) -> ToOnDemandCompiler {
         ToOnDemandCompiler {
             queries: vec![query],
             standalone: true,
             logging,
+            bindings: false,
             mmap,
-            filename
+            filename: None
         }
     }
 
-    pub fn new_header(
+    pub fn new_lib(
         queries: Vec<NamedQuery>,
         logging: bool,
+        bindings: bool,
         filename: Option<String>,
     ) -> ToOnDemandCompiler {
         ToOnDemandCompiler {
             queries,
             standalone: false,
             logging,
+            bindings,
             mmap: false,
             filename,
         }
@@ -157,9 +183,10 @@ impl ToOnDemandCompiler<'_> {
             let filename = if self.filename.is_some() { self.filename.unwrap() } else {
                 String::from("query.hpp")
             };
-            let template = ToOnDemandHeaderTemplate::new(
+            let template = ToOnDemandLibTemplate::new(
                 self.queries,
                 self.logging,
+                self.bindings,
                 &filename,
             );
             code = template.render().unwrap();
@@ -169,9 +196,9 @@ impl ToOnDemandCompiler<'_> {
 }
 
 static EMPTY_OBJECT_ITERATION: InstructionTemplate =
-    InstructionTemplate { instruction: &ForEachMember { instructions: vec![] }, current_node: "node" };
+    InstructionTemplate { instruction: &ForEachMember { instructions: vec![] }, current_node: "node", query_name: ""};
 static EMPTY_ARRAY_ITERATION: InstructionTemplate =
-    InstructionTemplate { instruction: &ForEachElement { instructions: vec![] }, current_node: "node" };
+    InstructionTemplate { instruction: &ForEachElement { instructions: vec![] }, current_node: "node", query_name: ""};
 
 
 fn is_array_length_needed(instructions: &Vec<Instruction>) -> bool {
@@ -197,6 +224,35 @@ fn is_array_length_needed(instructions: &Vec<Instruction>) -> bool {
         }
     }
     false
+}
+
+#[derive(Template)]
+#[template(path = "ondemand/bindings.rs", escape = "none")]
+struct RustBindingsTemplate {
+    query_names: Vec<String>,
+}
+
+impl RustBindingsTemplate {
+    pub fn new(query_names: Vec<String>) -> RustBindingsTemplate {
+        RustBindingsTemplate {
+            query_names
+        }
+    }
+}
+
+pub struct RustBindingsGenerator {
+    query_names: Vec<String>
+}
+
+impl RustBindingsGenerator {
+    pub fn new(query_names: Vec<String>) -> RustBindingsGenerator {
+        RustBindingsGenerator { query_names }
+    }
+
+    pub fn generate(self) -> String {
+        let template = RustBindingsTemplate::new(self.query_names);
+        template.render().unwrap()
+    }
 }
 
 
