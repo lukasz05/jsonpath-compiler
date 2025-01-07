@@ -4,6 +4,7 @@ use std::fmt::{Debug, Display, Formatter};
 use itertools::Itertools;
 
 pub mod generator;
+mod procedure_segments;
 
 #[derive(Debug)]
 pub struct Query {
