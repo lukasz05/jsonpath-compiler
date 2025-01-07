@@ -1,4 +1,4 @@
-void {{name|lower}}(ondemand::value &node, vector<string*> &results_in_progress, vector<string*> &all_results)
+void {{name|lower}}(ondemand::value &node, string *result_buf, vector<tuple<string *, size_t, size_t>> &all_results)
 {
 {% for instruction in instructions %}
     {{ instruction.render().unwrap() }}
@@ -10,5 +10,5 @@ void {{name|lower}}(ondemand::value &node, vector<string*> &results_in_progress,
     {{ EMPTY_ARRAY_ITERATION.render().unwrap() }}
 {% endif %}
     if (node.is_scalar())
-        traverse_and_save_selected_nodes(node, results_in_progress);
+        traverse_and_save_selected_nodes(node, result_buf);
 }

@@ -6,6 +6,7 @@
 #include <fstream>
 #include <vector>
 #include <queue>
+#include <set>
 #include <string>
 #include <algorithm>
 #include <fcntl.h>
@@ -23,7 +24,7 @@ string read_input(const char* filename);
 {% endif %}
 
 {% for procedure in procedures %}
-void {{procedure.name|lower}}(ondemand::value &node, vector<string*> &results_in_progress, vector<string*> &all_results);
+void {{procedure.name|lower}}(ondemand::value &node, string *result_buf, vector<tuple<string *, size_t, size_t>> &all_results);
 {% endfor %}
 
 int main(int argc, char **argv)
@@ -37,16 +38,23 @@ int main(int argc, char **argv)
     ondemand::parser parser;
     ondemand::document doc = parser.iterate(json);
     ondemand::value root_node = doc.get_value().value();
-    vector<string*> results_in_progress;
-    vector<string*> all_results;
-    selectors_0(root_node, results_in_progress, all_results);
+    vector<tuple<string *, size_t, size_t>> all_results;
+    selectors_0(root_node, nullptr, all_results);
     cout << "[\n";
     bool first = true;
-    for (const auto &buf_ptr : all_results)
+    for (const auto &[buf_ptr, start, end] : all_results)
     {
-        if (!first) cout << ",";
-        cout << "  " << *buf_ptr;
+        if (!first)
+            cout << ",";
+        cout << "  " << buf_ptr->substr(start, end - start);
         first = false;
+    }
+    set<string*> deleted_bufs;
+    for (auto [buf_ptr, _start, _end] : all_results) {
+        if (deleted_bufs.contains(buf_ptr))
+            continue;
+        deleted_bufs.insert(buf_ptr);
+        delete buf_ptr;
     }
     cout << "]\n";
     return 0;
@@ -74,15 +82,10 @@ string read_input(const char* filename)
 }
 {% endif %}
 
-void add_to_all_bufs(const vector<string*> &bufs, const string_view str)
+void traverse_and_save_selected_nodes(ondemand::value &node, string* result_buf)
 {
-    for (const auto &buf_ptr : bufs) *buf_ptr += str;
-}
-
-void traverse_and_save_selected_nodes(ondemand::value &node, vector<string*> &results_in_progress)
-{
-    if (!results_in_progress.empty())
-        add_to_all_bufs(results_in_progress, node.raw_json());
+    if (result_buf != nullptr)
+        *result_buf += node.raw_json().value();
 }
 
 {% for procedure in procedures %}

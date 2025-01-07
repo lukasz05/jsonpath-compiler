@@ -20,21 +20,22 @@
         }
     {% when Instruction::ExecuteProcedureOnChild with { name } %}
         {% if !query_name.is_empty() %}
-            {{query_name}}_{{name|lower}}({{current_node}}, results_in_progress, all_results);
+            {{query_name}}_{{name|lower}}({{current_node}}, result_buf, all_results);
         {% else %}
-            {{name|lower}}({{current_node}}, results_in_progress, all_results);
+            {{name|lower}}({{current_node}}, result_buf, all_results);
         {% endif %}
     {% when Instruction::SaveCurrentNodeDuringTraversal with { instruction } %}
-        string* buf_ptr = new string();
-        all_results.push_back(buf_ptr);
-        results_in_progress.push_back(buf_ptr);
+        if (result_buf == nullptr)
+            result_buf = new string();
+        size_t result_i = all_results.size();
+        all_results.emplace_back(result_buf, result_buf->size(), 0);
         {% let template = InstructionTemplate::new(instruction, current_node, query_name) %}
         {{ template.render().unwrap() }}
-        results_in_progress.pop_back();
+        get<2>(all_results[result_i]) = result_buf->size();
     {% when Instruction::Continue %}
         continue;
     {% when Instruction::TraverseCurrentNodeSubtree %}
-        traverse_and_save_selected_nodes({{current_node}}, results_in_progress);
+        traverse_and_save_selected_nodes({{current_node}}, result_buf);
 {% endmatch %}
 
 {% macro compile_instructions(instructions, current_node) %}
@@ -49,22 +50,25 @@
         ondemand::object object;
         if (!node.get_object().get(object))
         {
-            add_to_all_bufs(results_in_progress, string_view("{"));
+            if (result_buf != nullptr)
+                *result_buf += "{";
             bool first = true;
             for (ondemand::field field : object)
             {
                 string_view key = field.unescaped_key();
-                for (const auto &buf_ptr : results_in_progress)
+                if (result_buf != nullptr)
                 {
-                    if (!first) *buf_ptr += ", ";
-                    *buf_ptr += "\"";
-                    *buf_ptr += key;
-                    *buf_ptr += "\":";
+                    if (!first)
+                        *result_buf += ", ";
+                    *result_buf += "\"";
+                    *result_buf += key;
+                    *result_buf += "\":";
                 }
                 first = false;
                 {% call compile_instructions(instructions, "field.value()") %}
             }
-            add_to_all_bufs(results_in_progress, string_view("}"));
+            if (result_buf != nullptr)
+                *result_buf += "}";
         }
     {% endif %}
 {% endmacro %}
@@ -74,7 +78,8 @@
         ondemand::array array;
         if (!node.get_array().get(array))
         {
-            add_to_all_bufs(results_in_progress, string_view("["));
+            if (result_buf != nullptr)
+                *result_buf += "[";
             bool first = true;
             size_t index = 0;
             {% if self::is_array_length_needed(instructions) %}
@@ -85,12 +90,14 @@
                 if (!first)
                 {
                     index++;
-                    add_to_all_bufs(results_in_progress, string_view(", "));
+                    if (result_buf != nullptr)
+                        *result_buf += ", ";
                 }
                 first = false;
                 {% call compile_instructions(instructions, "element") %}
             }
-            add_to_all_bufs(results_in_progress, string_view("]"));
+            if (result_buf != nullptr)
+                *result_buf += "]";
         }
     {% endif %}
 {% endmacro %}

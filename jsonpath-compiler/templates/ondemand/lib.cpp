@@ -9,6 +9,7 @@
 
 #include <vector>
 #include <queue>
+#include <set>
 #include <string>
 #include <algorithm>
 #include <fcntl.h>
@@ -20,7 +21,7 @@ using namespace std;
 using namespace simdjson;
 
 {% for procedure in procedures %}
-void {{procedure.name|lower}}(ondemand::value &node, vector<string*> &results_in_progress, vector<string*> &all_results);
+void {{procedure.name|lower}}(ondemand::value &node, string *result_buf, vector<tuple<string *, size_t, size_t>> &all_results);
 {% endfor %}
 
 {% if bindings %}
@@ -35,18 +36,24 @@ string {{query_name}}(const char* padded_input, size_t length)
     ondemand::parser parser;
     ondemand::document doc = parser.iterate(padded_input, length - 64, length);
     ondemand::value root_node = doc.get_value().value();
-    vector<string*> results_in_progress;
-    vector<string*> all_results;
-    {{query_name}}_selectors_0(root_node, results_in_progress, all_results);
+    vector<tuple<string *, size_t, size_t>> all_results;
+    {{query_name}}_selectors_0(root_node, nullptr, all_results);
     string result;
     bool first = true;
     result += "[\n";
-    for (const auto &buf_ptr : all_results)
+    for (const auto &[buf_ptr, start, end] : all_results)
     {
-        if (!first) result += ",";
-        result += "  ";
-        result += *buf_ptr;
+        if (!first)
+            result += ",";
+        result += " ";
+        result += buf_ptr->substr(start, end - start);
         first = false;
+    }
+    set<string*> deleted_bufs;
+    for (auto [buf_ptr, _start, _end] : all_results) {
+        if (deleted_bufs.contains(buf_ptr))
+            continue;
+        deleted_bufs.insert(buf_ptr);
         delete buf_ptr;
     }
     result += "]\n";
@@ -66,15 +73,10 @@ extern "C" const char* {{query_name}}_binding(const char* padded_input, size_t i
 
 {% endfor %}
 
-void add_to_all_bufs(const vector<string*> &bufs, const string_view str)
+void traverse_and_save_selected_nodes(ondemand::value &node, string* result_buf)
 {
-    for (const auto &buf_ptr : bufs) *buf_ptr += str;
-}
-
-void traverse_and_save_selected_nodes(ondemand::value &node, vector<string*> &results_in_progress)
-{
-    if (!results_in_progress.empty())
-        add_to_all_bufs(results_in_progress, node.raw_json());
+    if (result_buf != nullptr)
+        *result_buf += node.raw_json().value();
 }
 
 {% for procedure in procedures %}
