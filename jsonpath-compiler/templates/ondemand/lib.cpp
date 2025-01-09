@@ -41,21 +41,20 @@ string {{query_name}}(const char* padded_input, size_t length)
     string result;
     bool first = true;
     result += "[\n";
+    string *prev_ptr = nullptr;
     for (const auto &[buf_ptr, start, end] : all_results)
     {
         if (!first)
             result += ",";
         result += " ";
-        result += buf_ptr->substr(start, end - start);
+        result += string_view(buf_ptr->data() + start, end - start);
         first = false;
+        if (prev_ptr != nullptr && buf_ptr != prev_ptr)
+            delete prev_ptr;
+        prev_ptr = buf_ptr;
     }
-    set<string*> deleted_bufs;
-    for (auto [buf_ptr, _start, _end] : all_results) {
-        if (deleted_bufs.contains(buf_ptr))
-            continue;
-        deleted_bufs.insert(buf_ptr);
-        delete buf_ptr;
-    }
+    if (prev_ptr != nullptr)
+        delete prev_ptr;
     result += "]\n";
     return result;
 }

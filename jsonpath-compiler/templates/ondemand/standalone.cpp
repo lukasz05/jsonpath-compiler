@@ -42,20 +42,19 @@ int main(int argc, char **argv)
     selectors_0(root_node, nullptr, all_results);
     cout << "[\n";
     bool first = true;
+    string *prev_ptr = nullptr;
     for (const auto &[buf_ptr, start, end] : all_results)
     {
         if (!first)
             cout << ",";
-        cout << "  " << buf_ptr->substr(start, end - start);
+        cout << "  " << string_view(buf_ptr->data() + start, end - start);
         first = false;
+        if (prev_ptr != nullptr && buf_ptr != prev_ptr)
+            delete prev_ptr;
+        prev_ptr = buf_ptr;
     }
-    set<string*> deleted_bufs;
-    for (auto [buf_ptr, _start, _end] : all_results) {
-        if (deleted_bufs.contains(buf_ptr))
-            continue;
-        deleted_bufs.insert(buf_ptr);
-        delete buf_ptr;
-    }
+    if (prev_ptr != nullptr)
+        delete prev_ptr;
     cout << "]\n";
     return 0;
 }
