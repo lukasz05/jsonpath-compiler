@@ -6,10 +6,12 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use rsonpath_syntax::JsonPathQuery;
 
-use crate::compiler::{RustBindingsGenerator, ToOnDemandCompiler};
+use crate::compiler::simdjson::{RustBindingsGenerator};
+use crate::compiler::simdjson::dom::ToDomCompiler;
+use crate::compiler::simdjson::ondemand::ToOnDemandCompiler;
 use crate::ir::generator::IRGenerator;
 use crate::ir::Query;
 
@@ -18,11 +20,21 @@ mod ir;
 
 const DEFAULT_QUERY_NAME: &str = "query";
 
+#[derive(ValueEnum, Debug, Clone)]
+#[clap(rename_all = "kebab_case")]
+enum Target {
+    SimdjsonOndemand,
+    SimdjsonDom
+}
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
     /// JSONPath query or a file with queries to be compiled.
     input: String,
+
+    #[arg(long)]
+    target: Target,
 
     /// Treat the input as a path to a file with queries.
     #[arg(long, action = clap::ArgAction::SetTrue)]
@@ -49,9 +61,9 @@ struct Args {
     #[arg(long, action = clap::ArgAction::SetTrue)]
     logging: bool,
 
-    // Generate Rust bindings for query procedures.
-    #[arg(long, action = clap::ArgAction::SetTrue)]
-    rust_bindings: bool
+    // File in which to place Rust bindings for query procedures.
+    #[arg(long, action)]
+    rust_bindings: Option<String>
 }
 
 fn main() -> Result<ExitCode, std::io::Error> {
@@ -86,7 +98,7 @@ fn main() -> Result<ExitCode, std::io::Error> {
     let code = compile(&query_irs, &args);
     if let Some(output_path) = args.output {
         write_to_file(&output_path, code)?;
-        if args.rust_bindings {
+        if args.rust_bindings.is_some() {
             let bindings_generator = RustBindingsGenerator::new(
                 queries.iter().map(|(name, _)| name.to_string()).collect()
             );
@@ -167,24 +179,48 @@ fn compile(
     queries: &Vec<NamedQuery>,
     args: &Args,
 ) -> String {
-    let compiler = if args.standalone {
-        let (name, query) = queries.first().unwrap();
-        ToOnDemandCompiler::new_standalone(
-            (name, query),
-            args.logging,
-            args.mmap,
-        )
-    } else {
-        let filename = args.output.clone()
-            .map(|f| Path::new(&f).file_name().unwrap().to_str().unwrap().to_string());
-        ToOnDemandCompiler::new_lib(
-            queries.iter().map(|(name, query_ir)| (name.as_str(), query_ir)).collect(),
-            args.logging,
-            args.rust_bindings,
-            filename,
-        )
-    };
-    compiler.compile()
+    match args.target {
+        Target::SimdjsonOndemand => {
+            let compiler = if args.standalone {
+                let (name, query) = queries.first().unwrap();
+                ToOnDemandCompiler::new_standalone(
+                    (name, query),
+                    args.logging,
+                    args.mmap,
+                )
+            } else {
+                let filename = args.output.clone()
+                    .map(|f| Path::new(&f).file_name().unwrap().to_str().unwrap().to_string());
+                ToOnDemandCompiler::new_lib(
+                    queries.iter().map(|(name, query_ir)| (name.as_str(), query_ir)).collect(),
+                    args.logging,
+                    args.rust_bindings.is_some(),
+                    filename,
+                )
+            };
+            compiler.compile()
+        }
+        Target::SimdjsonDom => {
+            let compiler = if args.standalone {
+                let (name, query) = queries.first().unwrap();
+                ToDomCompiler::new_standalone(
+                    (name, query),
+                    args.logging,
+                    args.mmap,
+                )
+            } else {
+                let filename = args.output.clone()
+                    .map(|f| Path::new(&f).file_name().unwrap().to_str().unwrap().to_string());
+                ToDomCompiler::new_lib(
+                    queries.iter().map(|(name, query_ir)| (name.as_str(), query_ir)).collect(),
+                    args.logging,
+                    args.rust_bindings.is_some(),
+                    filename,
+                )
+            };
+            compiler.compile()
+        }
+    }
 }
 
 fn write_ir_to_file(
