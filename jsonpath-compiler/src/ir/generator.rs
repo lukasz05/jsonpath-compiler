@@ -32,7 +32,7 @@ impl IRGenerator<'_> {
     pub fn generate(mut self) -> Query {
         let entry_procedure_segments = ProcedureSegments::new(
             self.query_syntax,
-            vec![0],
+            vec![(0, None)],
         );
         let entry_procedure_name = entry_procedure_segments.name();
         if self.query_syntax.segments().is_empty() {
@@ -55,7 +55,7 @@ impl IRGenerator<'_> {
             self.procedures_to_generate.insert(segments_data);
             while let Some(procedure_segments) = self.procedure_queue.pop_front() {
                 self.generate_procedure(
-                    &ProcedureSegments::new(self.query_syntax, procedure_segments.segments())
+                    &ProcedureSegments::new(self.query_syntax, procedure_segments.segments_with_conditions())
                 );
             }
             let mut procedures: Vec<Procedure> = self.generated_procedures.into_values().collect();
