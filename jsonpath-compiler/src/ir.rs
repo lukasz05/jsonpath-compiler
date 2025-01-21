@@ -1,7 +1,4 @@
-use std::fmt;
-use std::fmt::{Debug, Display, Formatter};
-
-use itertools::Itertools;
+use std::fmt::Debug;
 
 pub mod generator;
 mod procedure_segments;
@@ -12,52 +9,10 @@ pub struct Query {
     pub filter_procedures: Vec<FilterProcedure>
 }
 
-impl Query {
-    fn fmt(&self, f: &mut Formatter, indent: u16) -> fmt::Result {
-        let mut first = true;
-        for procedure in &self.procedures {
-            if !first {
-                write!(f, "\n")?;
-            }
-            first = false;
-            procedure.fmt(f, indent)?;
-        }
-        for filter_procedure in &self.filter_procedures {
-            write!(f, "\n")?;
-            filter_procedure.fmt(f, indent)?;
-        }
-        Ok(())
-    }
-}
-
-impl Display for Query {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        self.fmt(f, 0)
-    }
-}
-
 #[derive(Debug)]
 pub struct Procedure {
     pub name: String,
     pub instructions: Vec<Instruction>,
-}
-
-impl Procedure {
-    fn fmt(&self, f: &mut Formatter, indent: u16) -> fmt::Result {
-        write_indent(f, indent)?;
-        write!(f, "{} {{\n", self.name)?;
-        for instruction in &self.instructions {
-            instruction.fmt(f, indent + 1)?;
-        }
-        write_indent(f, indent)?;
-        write!(f, "}}\n")
-    }
-}
-
-impl Display for Procedure {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        self.fmt(f, 0)
-    }
 }
 
 #[derive(Debug)]
@@ -68,7 +23,10 @@ pub enum Instruction {
     IfCurrentIndexFromEndEquals { index: u64, instructions: Vec<Instruction> },
     IfCurrentMemberNameEquals { name: String, instructions: Vec<Instruction> },
     ExecuteProcedureOnChild { name: String },
-    SaveCurrentNodeDuringTraversal { instruction: Box<Instruction> },
+    SaveCurrentNodeDuringTraversal {
+        condition: Option<SelectionCondition>,
+        instruction: Box<Instruction>,
+    },
     Continue,
     TraverseCurrentNodeSubtree
 }
@@ -89,116 +47,19 @@ impl Instruction {
             _ => false
         }
     }
-
-    fn fmt(&self, f: &mut Formatter, indent: u16) -> fmt::Result {
-        write_indent(f, indent)?;
-        match self {
-            Instruction::ForEachElement { instructions } => {
-                write!(f, "ForEachElement {{\n")?;
-                for instruction in instructions {
-                    instruction.fmt(f, indent + 1)?;
-                }
-                write_indent(f, indent)?;
-                write!(f, "}}\n")
-            },
-            Instruction::ForEachMember { instructions } => {
-                write!(f, "ForEachMember {{\n")?;
-                for instruction in instructions {
-                    instruction.fmt(f, indent + 1)?;
-                }
-                write_indent(f, indent)?;
-                write!(f, "}}\n")
-            },
-            Instruction::IfCurrentIndexEquals { index, instructions } => {
-                write!(f, "IfCurrentIndexEquals({index}) {{\n")?;
-                for instruction in instructions {
-                    instruction.fmt(f, indent + 1)?;
-                }
-                write_indent(f, indent)?;
-                write!(f, "}}\n")
-            },
-            Instruction::IfCurrentIndexFromEndEquals { index, instructions } => {
-                write!(f, "IfCurrentIndexFromEndEquals({index}) {{\n")?;
-                for instruction in instructions {
-                    instruction.fmt(f, indent + 1)?;
-                }
-                write_indent(f, indent)?;
-                write!(f, "}}\n")
-            },
-            Instruction::IfCurrentMemberNameEquals { name, instructions } => {
-                write!(f, "IfCurrentMemberNameEquals({name}) {{\n")?;
-                for instruction in instructions {
-                    instruction.fmt(f, indent + 1)?;
-                }
-                write_indent(f, indent)?;
-                write!(f, "}}\n")
-            },
-            Instruction::ExecuteProcedureOnChild { name } => {
-                write!(f, "{name}(currentChild)\n")
-            },
-            Instruction::SaveCurrentNodeDuringTraversal { instruction } => {
-                write!(f, "SelectCurrentNode {{\n")?;
-                (**instruction).fmt(f, indent + 1)?;
-                write_indent(f, indent)?;
-                write!(f, "}}\n")
-            },
-            Instruction::Continue => write!(f, "Continue\n"),
-            Instruction::TraverseCurrentNodeSubtree => {
-                write!(f, "TraverseCurrentNodeSubtree\n")
-            }
-        }
-    }
-}
-
-impl Display for Instruction {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        self.fmt(f, 0)
-    }
 }
 
 #[derive(Debug)]
 pub struct Name(pub String);
 
-impl Display for Name {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "\"{}\"", self.0)
-    }
-}
-
 #[derive(Debug)]
 pub struct Index(pub i64);
-
-impl Display for Index {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
 
 #[derive(Debug)]
 pub struct FilterProcedure {
     pub name: String,
     pub arity: usize,
     pub expression: FilterExpression,
-}
-
-impl FilterProcedure {
-    fn fmt(&self, f: &mut Formatter, indent: u16) -> fmt::Result {
-        write_indent(f, indent)?;
-        let params_str = (1..self.arity + 1).into_iter()
-            .map(|i| format!("param{i}"))
-            .join(", ");
-        let signature = format!("{}({params_str})", self.name);
-        write!(f, "{} {{\n", signature)?;
-        self.expression.fmt(f, indent + 1)?;
-        write_indent(f, indent)?;
-        write!(f, "}}\n")
-    }
-}
-
-impl Display for FilterProcedure {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        self.fmt(f, 0)
-    }
 }
 
 #[derive(Debug)]
@@ -210,74 +71,11 @@ pub enum FilterExpression {
     BoolParam { id: usize },
 }
 
-impl FilterExpression {
-    fn fmt(&self, f: &mut Formatter, indent: u16) -> fmt::Result {
-        write_indent(f, indent)?;
-        match self {
-            FilterExpression::Or { lhs, rhs } => {
-                write!(f, "Or {{\n")?;
-                (**lhs).fmt(f, indent + 1)?;
-                (**rhs).fmt(f, indent + 1)?;
-                write_indent(f, indent)?;
-                write!(f, "}}\n")
-            }
-            FilterExpression::And { lhs, rhs } => {
-                write!(f, "And {{\n")?;
-                (**lhs).fmt(f, indent + 1)?;
-                (**rhs).fmt(f, indent + 1)?;
-                write_indent(f, indent)?;
-                write!(f, "}}\n")
-            }
-            FilterExpression::Not { expr } => {
-                write!(f, "Not {{\n")?;
-                (**expr).fmt(f, indent + 1)?;
-                write_indent(f, indent)?;
-                write!(f, "}}\n")
-            }
-            FilterExpression::Comparison { lhs, rhs, op } => {
-                write!(f, "{} {{\n", op.to_string())?;
-                lhs.fmt(f, indent + 1)?;
-                rhs.fmt(f, indent + 1)?;
-                write_indent(f, indent)?;
-                write!(f, "}}\n")
-            }
-            FilterExpression::BoolParam { id } => write!(f, "param{id}\n")
-        }
-    }
-}
-
-impl Display for FilterExpression {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        self.fmt(f, 0)
-    }
-}
-
 #[derive(Debug)]
 pub enum Comparable {
     Param { id: usize },
     Literal { value: LiteralValue },
 }
-
-impl Comparable {
-    fn fmt(&self, f: &mut Formatter, indent: u16) -> fmt::Result {
-        match self {
-            Comparable::Param { id } => {
-                write_indent(f, indent)?;
-                write!(f, "param{id}\n")
-            }
-            Comparable::Literal { value } => {
-                value.fmt(f, indent)
-            }
-        }
-    }
-}
-
-impl Display for Comparable {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        self.fmt(f, 0)
-    }
-}
-
 
 #[derive(Debug)]
 pub enum LiteralValue {
@@ -286,35 +84,6 @@ pub enum LiteralValue {
     Float(f64),
     Bool(bool),
     Null,
-}
-
-impl LiteralValue {
-    fn fmt(&self, f: &mut Formatter, indent: u16) -> fmt::Result {
-        write_indent(f, indent)?;
-        match self {
-            LiteralValue::String(str) => {
-                write!(f, "\"{str}\"\n")
-            }
-            LiteralValue::Int(int) => {
-                write!(f, "{int}\n")
-            }
-            LiteralValue::Float(float) => {
-                write!(f, "{float}\n")
-            }
-            LiteralValue::Bool(bool) => {
-                write!(f, "{bool}\n")
-            }
-            LiteralValue::Null => {
-                write!(f, "null\n")
-            }
-        }
-    }
-}
-
-impl Display for LiteralValue {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        self.fmt(f, 0)
-    }
 }
 
 #[derive(Debug)]
@@ -327,16 +96,104 @@ pub enum ComparisonOp {
     GreaterThan,
 }
 
-impl Display for ComparisonOp {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+#[derive(Eq, PartialEq, Hash, Clone, Ord, PartialOrd, Debug)]
+pub enum SelectionCondition {
+    Filter { id: FilterId },
+    Or { lhs: Box<SelectionCondition>, rhs: Box<SelectionCondition> },
+    And { lhs: Box<SelectionCondition>, rhs: Box<SelectionCondition> },
+}
+
+impl SelectionCondition {
+    fn merge_with(&self, other: &SelectionCondition, normalize: bool) -> SelectionCondition {
+        let merged = SelectionCondition::Or {
+            lhs: Box::new(self.clone()),
+            rhs: Box::new(other.clone()),
+        };
+        if normalize { merged.normalize() } else { merged }
+    }
+
+    fn and(&self, other: &SelectionCondition) -> SelectionCondition {
+        SelectionCondition::And { lhs: Box::new(self.clone()), rhs: Box::new(other.clone()) }
+            .normalize()
+    }
+
+    fn normalize(&self) -> SelectionCondition {
+        match self {
+            SelectionCondition::Or { lhs, rhs } => {
+                let (lhs, rhs) = Self::normalize_and_sort_subconditions(
+                    *lhs.clone(),
+                    *rhs.clone(),
+                );
+                if let Some(rhs) = rhs {
+                    SelectionCondition::Or {
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    }
+                } else {
+                    lhs
+                }
+            }
+            SelectionCondition::And { lhs, rhs } => {
+                let (lhs, rhs) = Self::normalize_and_sort_subconditions(
+                    *lhs.clone(),
+                    *rhs.clone(),
+                );
+                if let Some(rhs) = rhs {
+                    SelectionCondition::And {
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    }
+                } else {
+                    lhs
+                }
+            }
+            _ => self.clone()
+        }
+    }
+
+    fn merge(conditions: Vec<Option<SelectionCondition>>) -> Option<SelectionCondition> {
+        if conditions.is_empty() ||
+            conditions.iter().any(|condition| condition.is_none()) {
+            None
+        } else {
+            let conditions: Vec<SelectionCondition> = conditions.into_iter()
+                .map(|condition| condition.unwrap())
+                .collect();
+            let merged_conditions = conditions.iter().skip(1).fold(
+                conditions[0].clone(),
+                |merged_conditions, condition| condition.merge_with(&merged_conditions, false),
+            );
+            Some(merged_conditions.normalize())
+        }
+    }
+
+    fn normalize_and_sort_subconditions(
+        lhs: SelectionCondition,
+        rhs: SelectionCondition,
+    ) -> (SelectionCondition, Option<SelectionCondition>) {
+        let normalized_lhs = lhs.normalize();
+        let normalized_rhs = rhs.normalize();
+        if normalized_lhs == normalized_rhs {
+            (normalized_lhs, None)
+        } else if normalized_lhs < normalized_rhs {
+            (lhs, Some(rhs))
+        } else {
+            (rhs, Some(lhs))
+        }
     }
 }
 
-const INDENT: &str = "  ";
-fn write_indent(f: &mut Formatter, indent: u16) -> fmt::Result {
-    for _ in 0..indent {
-        write!(f, "{}", INDENT)?;
-    }
-    Ok(())
+#[derive(Eq, PartialEq, Hash, Clone, Ord, PartialOrd, Debug)]
+pub struct FilterId {
+    pub segment_index: SegmentIndex,
+    pub selector_index: SelectorIndex,
 }
+
+impl FilterId {
+    pub fn new(segment_index: SegmentIndex, selector_index: SelectorIndex) -> FilterId {
+        FilterId { segment_index, selector_index }
+    }
+}
+
+pub type SegmentIndex = usize;
+pub type SelectorIndex = usize;

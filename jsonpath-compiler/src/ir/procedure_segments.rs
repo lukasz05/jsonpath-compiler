@@ -1,98 +1,13 @@
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-type SegmentIndex = usize;
-type SelectorIndex = usize;
+use itertools::Itertools;
 
-#[derive(Eq, PartialEq, Hash, Clone, Ord, PartialOrd)]
-pub struct FilterId {
-    segment_index: SegmentIndex,
-    selector_index: SelectorIndex,
-}
-
-impl FilterId {
-    pub fn new(segment_index: SegmentIndex, selector_index: SelectorIndex) -> FilterId {
-        FilterId { segment_index, selector_index }
-    }
-}
-
-#[derive(Eq, PartialEq, Hash, Clone, Ord, PartialOrd)]
-pub enum SegmentCondition {
-    Filter { id: FilterId },
-    Or { lhs: Box<SegmentCondition>, rhs: Box<SegmentCondition> },
-    And { lhs: Box<SegmentCondition>, rhs: Box<SegmentCondition> },
-}
-
-impl SegmentCondition {
-    fn merge_with(&self, other: &SegmentCondition, normalize: bool) -> SegmentCondition {
-        let merged = SegmentCondition::Or {
-            lhs: Box::new(self.clone()),
-            rhs: Box::new(other.clone()),
-        };
-        if normalize { merged.normalize() } else { merged }
-    }
-
-    fn normalize(&self) -> SegmentCondition {
-        match self {
-            SegmentCondition::Or { lhs, rhs } => {
-                let (lhs, rhs) = Self::normalize_and_sort_subconditions(
-                    *lhs.clone(),
-                    *rhs.clone(),
-                );
-                if let Some(rhs) = rhs {
-                    SegmentCondition::Or {
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(rhs),
-                    }
-                } else {
-                    lhs
-                }
-            }
-            SegmentCondition::And { lhs, rhs } => {
-                let (lhs, rhs) = Self::normalize_and_sort_subconditions(
-                    *lhs.clone(),
-                    *rhs.clone(),
-                );
-                if let Some(rhs) = rhs {
-                    SegmentCondition::And {
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(rhs),
-                    }
-                } else {
-                    lhs
-                }
-            }
-            _ => self.clone()
-        }
-    }
-
-    fn merge(conditions: Vec<SegmentCondition>) -> SegmentCondition {
-        let merged_conditions = conditions.iter().fold(
-            conditions[0].clone(),
-            |merged_conditions, condition| condition.merge_with(&merged_conditions, false),
-        );
-        merged_conditions.normalize()
-    }
-
-    fn normalize_and_sort_subconditions(
-        lhs: SegmentCondition,
-        rhs: SegmentCondition,
-    ) -> (SegmentCondition, Option<SegmentCondition>) {
-        let normalized_lhs = lhs.normalize();
-        let normalized_rhs = rhs.normalize();
-        if normalized_lhs == normalized_rhs {
-            (normalized_lhs, None)
-        } else if normalized_lhs < normalized_rhs {
-            (lhs, Some(rhs))
-        } else {
-            (rhs, Some(lhs))
-        }
-    }
-}
+use crate::ir::{FilterId, SegmentIndex, SelectionCondition};
 
 #[derive(Eq, PartialEq, Hash, Clone)]
 pub struct ProcedureSegmentsData {
-    segments_with_conditions: Vec<(SegmentIndex, Option<SegmentCondition>)>,
+    segments_with_conditions: Vec<(SegmentIndex, Option<SelectionCondition>)>,
 }
 
 impl ProcedureSegmentsData {
@@ -103,7 +18,7 @@ impl ProcedureSegmentsData {
     }
 
     fn new_with_conditions(
-        segments_with_conditions: Vec<(SegmentIndex, Option<SegmentCondition>)>
+        segments_with_conditions: Vec<(SegmentIndex, Option<SelectionCondition>)>
     ) -> ProcedureSegmentsData {
         ProcedureSegmentsData {
             segments_with_conditions
@@ -136,7 +51,7 @@ impl ProcedureSegmentsData {
         self.segments_with_conditions.iter().map(|(i, _)| *i).collect()
     }
 
-    pub fn segments_with_conditions(&self) -> Vec<(SegmentIndex, Option<SegmentCondition>)> {
+    pub fn segments_with_conditions(&self) -> Vec<(SegmentIndex, Option<SelectionCondition>)> {
         self.segments_with_conditions.clone()
     }
 }
@@ -150,7 +65,7 @@ pub struct ProcedureSegments<'a> {
 impl ProcedureSegments<'_> {
     pub fn new(
         query: &rsonpath_syntax::JsonPathQuery,
-        segments_with_conditions: Vec<(SegmentIndex, Option<SegmentCondition>)>,
+        segments_with_conditions: Vec<(SegmentIndex, Option<SelectionCondition>)>,
     ) -> ProcedureSegments {
         ProcedureSegments {
             query,
@@ -166,8 +81,27 @@ impl ProcedureSegments<'_> {
         self.segments_data.segments()
     }
 
-    pub fn segments_with_conditions(&self) -> Vec<(SegmentIndex, Option<SegmentCondition>)> {
+    pub fn segments_with_conditions(&self) -> Vec<(SegmentIndex, Option<SelectionCondition>)> {
         self.segments_data.segments_with_conditions()
+    }
+
+    pub fn segment_selection_condition(&self, segment_index: SegmentIndex) -> Option<SelectionCondition> {
+        let (_, condition) = self.segments_data.segments_with_conditions().into_iter()
+            .find(|(index, _)| *index == segment_index)
+            .unwrap();
+        condition
+    }
+
+    pub fn any_segment_selection_condition(&self) -> Option<SelectionCondition> {
+        let conditions: Vec<SelectionCondition> = self.segments_with_conditions().into_iter()
+            .filter(|(_, condition)| condition.is_some())
+            .map(|(_, condition)| condition.unwrap())
+            .collect();
+        if conditions.is_empty() {
+            None
+        } else {
+            SelectionCondition::merge(conditions.into_iter().map_into().collect())
+        }
     }
 
     pub fn unconditional_segments(&self) -> Vec<SegmentIndex> {
@@ -194,12 +128,42 @@ impl ProcedureSegments<'_> {
     }
 
     pub fn successors(&self) -> ProcedureSegments {
-        let segment_count = self.query.segments().len();
         let segments_with_conditions = self.filter_and_map_segments(
-            |s| s + 1 < segment_count,
+            |s| s + 1 < self.query.segments().len(),
             |s| s + 1,
         );
         ProcedureSegments::new(self.query, segments_with_conditions)
+    }
+
+    pub fn filters_successors(&self) -> ProcedureSegments {
+        let filters_ids = self.filter_selectors();
+        let mut segments_with_conditions: HashMap<SegmentIndex, Option<SelectionCondition>> = HashMap::new();
+        for filter_id in &filters_ids {
+            if filter_id.segment_index + 1 >= self.query.segments().len() {
+                continue
+            }
+            let segment_condition = self.segment_selection_condition(filter_id.segment_index);
+            let filter_condition = SelectionCondition::Filter { id: filter_id.clone() };
+            let successor_condition = if let Some(segment_condition) = segment_condition {
+                segment_condition.and(&filter_condition)
+            } else {
+                filter_condition.clone()
+            };
+            if let Some(Some(existing_condition)) = segments_with_conditions.get(&(filter_id.segment_index + 1)) {
+                segments_with_conditions.insert(
+                    filter_id.segment_index + 1,
+                    existing_condition.merge_with(&successor_condition, true).into(),
+                );
+            } else {
+                segments_with_conditions.insert(filter_id.segment_index + 1, successor_condition.into());
+            }
+        }
+        ProcedureSegments::new(
+            self.query,
+            segments_with_conditions.into_iter()
+                .map(|(key, value)| (key, value))
+                .collect(),
+        )
     }
 
     pub fn finals(&self) -> ProcedureSegments {
@@ -209,6 +173,23 @@ impl ProcedureSegments<'_> {
             |s| s,
         );
         ProcedureSegments::new(self.query, segments_with_conditions)
+    }
+
+    pub fn filters_any_final_selection_condition(&self) -> Option<SelectionCondition> {
+        let filters_ids: Vec<FilterId> = self.filter_selectors().into_iter()
+            .filter(|filter_id| filter_id.segment_index + 1 == self.query.segments().len())
+            .collect();
+        let mut selection_conditions = Vec::new();
+        for filter_id in &filters_ids {
+            let segment_condition = self.segment_selection_condition(filter_id.segment_index);
+            let filter_condition = SelectionCondition::Filter { id: filter_id.clone() };
+            selection_conditions.push(if let Some(segment_condition) = segment_condition {
+                segment_condition.and(&filter_condition)
+            } else {
+                filter_condition
+            });
+        }
+        SelectionCondition::merge(selection_conditions.into_iter().map_into().collect())
     }
 
     pub fn wildcards(&self) -> ProcedureSegments {
@@ -254,8 +235,16 @@ impl ProcedureSegments<'_> {
         self.index_selectors().into_iter().filter(|(key, _)| *key < 0).collect()
     }
 
+    pub fn filters(&self) -> ProcedureSegments {
+        let segments_with_conditions = self.filter_and_map_segments(
+            |s| self.query.segments()[s].selectors().iter().any(|sel| sel.is_filter()),
+            |s| s,
+        );
+        ProcedureSegments::new(self.query, segments_with_conditions)
+    }
+
     pub fn merge_with(&self, other: &ProcedureSegments) -> ProcedureSegments {
-        let mut segments_with_conditions: HashMap<SegmentIndex, Option<SegmentCondition>> =
+        let mut segments_with_conditions: HashMap<SegmentIndex, Option<SelectionCondition>> =
             self.segments_with_conditions().into_iter().collect();
         for (segment_id, condition) in other.segments_with_conditions() {
             if !segments_with_conditions.contains_key(&segment_id) {
@@ -306,7 +295,7 @@ impl ProcedureSegments<'_> {
         &self,
         f: impl Fn(SegmentIndex) -> bool,
         m: impl Fn(SegmentIndex) -> SegmentIndex,
-    ) -> Vec<(SegmentIndex, Option<SegmentCondition>)> {
+    ) -> Vec<(SegmentIndex, Option<SelectionCondition>)> {
         self.segments_with_conditions().into_iter()
             .filter(|(segment_index, _)| f(*segment_index))
             .map(|(segment_index, condition)| (m(segment_index), condition))
@@ -317,7 +306,7 @@ impl ProcedureSegments<'_> {
         &self,
         get_key: impl Fn(&rsonpath_syntax::Selector) -> Option<T>,
     ) -> HashMap<T, ProcedureSegments> {
-        let mut map: HashMap<T, Vec<(SegmentIndex, Option<SegmentCondition>)>> = HashMap::new();
+        let mut map: HashMap<T, Vec<(SegmentIndex, Option<SelectionCondition>)>> = HashMap::new();
         for (segment_index, condition) in self.segments_with_conditions() {
             let selectors = self.query.segments()[segment_index].selectors();
             for selector in selectors.iter() {
@@ -336,6 +325,28 @@ impl ProcedureSegments<'_> {
         map.into_iter()
             .map(|(key, segments)| {
                 (key, ProcedureSegments::new(self.query, segments))
+            })
+            .collect()
+    }
+
+    fn successors_segments_with_conditions(&self) -> Vec<(SegmentIndex, Option<SelectionCondition>)> {
+        let segment_count = self.query.segments().len();
+        self.filter_and_map_segments(
+            |s| s + 1 < segment_count,
+            |s| s + 1,
+        )
+    }
+
+    fn filter_selectors(&self) -> Vec<FilterId> {
+        self.segments().into_iter()
+            .flat_map(|segment_id| {
+                self.query.segments()[segment_id].selectors().into_iter()
+                    .enumerate()
+                    .map(move |(index, selector)| ((segment_id, index), selector))
+            })
+            .filter(|(_, selector)| selector.is_filter())
+            .map(|((segment_index, selector_index), _)| {
+                FilterId::new(segment_index, selector_index)
             })
             .collect()
     }

@@ -9,9 +9,9 @@ use std::process::ExitCode;
 use clap::{Parser, ValueEnum};
 use rsonpath_syntax::JsonPathQuery;
 
-use crate::compiler::simdjson::{RustBindingsGenerator};
 use crate::compiler::simdjson::dom::ToDomCompiler;
 use crate::compiler::simdjson::ondemand::ToOnDemandCompiler;
+use crate::compiler::simdjson::RustBindingsGenerator;
 use crate::ir::generator::IRGenerator;
 use crate::ir::Query;
 
@@ -230,7 +230,7 @@ fn write_ir_to_file(
     let mut ir_file = File::create(ir_output_path).unwrap();
     for (name, query_ir) in query_irs {
         write!(&mut ir_file, "{name}:\n")?;
-        write!(&mut ir_file, "{}", query_ir)?;
+        write!(&mut ir_file, "{:#?}", query_ir)?;
         write!(&mut ir_file, "\n")?;
     }
     Ok(())
