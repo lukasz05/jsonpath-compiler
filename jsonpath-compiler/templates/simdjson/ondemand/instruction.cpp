@@ -24,7 +24,7 @@
         {% else %}
             {{name|lower}}({{current_node}}, result_buf, all_results);
         {% endif %}
-    {% when Instruction::SaveCurrentNodeDuringTraversal with { instruction } %}
+    {% when Instruction::SaveCurrentNodeDuringTraversal with { instruction, condition } %}
         if (result_buf == nullptr)
             result_buf = new string();
         size_t result_i = all_results.size();
@@ -36,6 +36,8 @@
         continue;
     {% when Instruction::TraverseCurrentNodeSubtree %}
         traverse_and_save_selected_nodes({{current_node}}, result_buf);
+    {% when Instruction::RegisterSubqueryPath { subquery_path } %}
+    {% when Instruction::TryUpdateSubqueries %}
 {% endmatch %}
 
 {% macro compile_instructions(instructions, current_node) %}

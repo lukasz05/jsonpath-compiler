@@ -24,13 +24,15 @@
         {% else %}
             {{name|lower}}({{current_node}}, all_results);
         {% endif %}
-    {% when Instruction::SaveCurrentNodeDuringTraversal with { instruction } %}
+    {% when Instruction::SaveCurrentNodeDuringTraversal with { instruction, condition} %}
         all_results.push_back(simdjson::to_string({{current_node}}));
         {% let template = InstructionTemplate::new(instruction, current_node, query_name) %}
         {{ template.render().unwrap() }}
     {% when Instruction::Continue %}
         continue;
     {% when Instruction::TraverseCurrentNodeSubtree %}
+    {% when Instruction::RegisterSubqueryPath { subquery_path }%}
+    {% when Instruction::TryUpdateSubqueries %}
 {% endmatch %}
 
 {% macro compile_instructions(instructions, current_node) %}

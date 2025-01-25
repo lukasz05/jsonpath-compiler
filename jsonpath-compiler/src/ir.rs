@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 pub mod generator;
 mod procedure_segments;
+mod filter_generator;
 
 #[derive(Debug)]
 pub struct Query {
@@ -28,7 +29,9 @@ pub enum Instruction {
         instruction: Box<Instruction>,
     },
     Continue,
-    TraverseCurrentNodeSubtree
+    TraverseCurrentNodeSubtree,
+    RegisterSubqueryPath { subquery_path: FilterSubqueryPath },
+    TryUpdateSubqueries
 }
 
 impl Instruction {
@@ -45,6 +48,30 @@ impl Instruction {
             Instruction::ForEachElement { .. } |
             Instruction::SaveCurrentNodeDuringTraversal { .. } => true,
             _ => false
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct FilterSubqueryPath {
+    filter_id: FilterId,
+    subquery_index: usize,
+    path: String,
+    is_relative: bool,
+}
+
+impl FilterSubqueryPath {
+    pub fn new(
+        filter_id: FilterId,
+        subquery_index: usize,
+        path: String,
+        is_relative: bool,
+    ) -> FilterSubqueryPath {
+        FilterSubqueryPath {
+            filter_id,
+            subquery_index,
+            path,
+            is_relative,
         }
     }
 }

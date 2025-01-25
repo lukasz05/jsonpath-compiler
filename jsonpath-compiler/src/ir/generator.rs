@@ -1,13 +1,10 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::ir::{Comparable, ComparisonOp, FilterExpression, FilterProcedure, Instruction, LiteralValue, Procedure, Query, SelectionCondition};
-use crate::ir::Comparable::{Literal, Param};
-use crate::ir::FilterExpression::{And, BoolParam, Comparison, Not, Or};
-use crate::ir::Instruction::{Continue, ExecuteProcedureOnChild, ForEachElement, ForEachMember,
-                             IfCurrentIndexEquals, IfCurrentIndexFromEndEquals,
-                             IfCurrentMemberNameEquals, SaveCurrentNodeDuringTraversal,
-                             TraverseCurrentNodeSubtree};
-use crate::ir::LiteralValue::{Bool, Float, Int, Null};
+use itertools::Itertools;
+
+use crate::ir::{Instruction, Procedure, Query, SelectionCondition};
+use crate::ir::filter_generator::{FilterGenerator, FilterSubqueryFinder, FilterUtils};
+use crate::ir::Instruction::{Continue, ExecuteProcedureOnChild, ForEachElement, ForEachMember, IfCurrentIndexEquals, IfCurrentIndexFromEndEquals, IfCurrentMemberNameEquals, RegisterSubqueryPath, SaveCurrentNodeDuringTraversal, TraverseCurrentNodeSubtree, TryUpdateSubqueries};
 use crate::ir::procedure_segments::{ProcedureSegments, ProcedureSegmentsData};
 
 pub struct IRGenerator<'a> {
@@ -15,7 +12,9 @@ pub struct IRGenerator<'a> {
     generated_procedures: HashMap<ProcedureSegmentsData, Procedure>,
     procedures_to_generate: HashSet<ProcedureSegmentsData>,
     procedure_queue: VecDeque<ProcedureSegmentsData>,
-    filter_generator: FilterGenerator
+    filter_generator: FilterGenerator,
+    filter_subquery_finder: FilterSubqueryFinder,
+    are_filters_in_query: bool
 }
 
 impl IRGenerator<'_> {
@@ -25,21 +24,23 @@ impl IRGenerator<'_> {
             generated_procedures: HashMap::new(),
             procedures_to_generate: HashSet::new(),
             procedure_queue: VecDeque::new(),
-            filter_generator: FilterGenerator::new()
+            filter_generator: FilterGenerator::new(),
+            filter_subquery_finder: FilterSubqueryFinder::new(),
+            are_filters_in_query: !FilterUtils::get_all_filters(query_syntax).is_empty()
         }
     }
 
     pub fn generate(mut self) -> Query {
-        let entry_procedure_segments = ProcedureSegments::new(
+        let first_segment = ProcedureSegments::new(
             self.query_syntax,
             vec![(0, None)],
         );
-        let entry_procedure_name = entry_procedure_segments.name();
+        let first_segment_procedure_name = first_segment.name();
         if self.query_syntax.segments().is_empty() {
             Query {
                 procedures: vec![
                     Procedure {
-                        name: entry_procedure_name,
+                        name: first_segment_procedure_name,
                         instructions: vec![
                             SaveCurrentNodeDuringTraversal {
                                 instruction: Box::new(TraverseCurrentNodeSubtree),
@@ -51,7 +52,7 @@ impl IRGenerator<'_> {
                 filter_procedures: vec![]
             }
         } else {
-            let segments_data = entry_procedure_segments.segments_data();
+            let segments_data = first_segment.segments_data();
             self.procedure_queue.push_back(segments_data.clone());
             self.procedures_to_generate.insert(segments_data);
             while let Some(procedure_segments) = self.procedure_queue.pop_front() {
@@ -59,8 +60,17 @@ impl IRGenerator<'_> {
                     &ProcedureSegments::new(self.query_syntax, procedure_segments.segments_with_conditions())
                 );
             }
-            let mut procedures: Vec<Procedure> = self.generated_procedures.into_values().collect();
-            procedures.sort_by(|a, b| a.name.cmp(&b.name));
+            let init_procedure = self.init_procedure();
+            let procedures: Vec<Procedure> = if init_procedure.is_none() {
+                vec![]
+            } else {
+                vec![init_procedure.unwrap()]
+            };
+            let procedures: Vec<Procedure> = procedures.into_iter()
+                .chain(self.generated_procedures.into_values().sorted_by(|a, b| {
+                    a.name.cmp(&b.name)
+                }))
+                .collect();
             Query {
                 procedures,
                 filter_procedures: self.filter_generator
@@ -69,20 +79,55 @@ impl IRGenerator<'_> {
         }
     }
 
+    fn init_procedure(&mut self) -> Option<Procedure> {
+        let absolute_subqueries_paths = self.filter_subquery_finder
+            .get_all_subqueries_paths(self.query_syntax).into_iter()
+            .filter(|subquery_path| !subquery_path.is_relative);
+        let register_subquery_instructions: Vec<Instruction> = absolute_subqueries_paths.into_iter()
+            .map(|subquery_path| RegisterSubqueryPath { subquery_path })
+            .collect();
+        if register_subquery_instructions.is_empty() {
+            None
+        } else {
+            Procedure {
+                name: "Init".to_string(),
+                instructions: register_subquery_instructions,
+            }.into()
+        }
+    }
+
     fn generate_procedure(&mut self, segments: &ProcedureSegments) {
-        let object_selectors_instructions =
-            self.generate_object_selectors(&segments);
-        let array_selectors_instructions =
-            self.generate_array_selectors(&segments);
+        let mut instructions = Vec::new();
+        if self.are_filters_in_query {
+            instructions.push(TryUpdateSubqueries);
+        }
+        instructions.append(&mut self.generate_object_selectors(&segments));
+        instructions.append(&mut self.generate_array_selectors(&segments));
         let segments_data = segments.segments_data();
         self.procedures_to_generate.remove(&segments_data);
         self.generated_procedures.insert(segments_data, Procedure {
             name: segments.name(),
-            instructions: object_selectors_instructions
-                .into_iter().chain(array_selectors_instructions.into_iter()).collect()
+            instructions
         });
     }
 
+    fn generate_register_relative_subqueries(
+        &mut self,
+        segments: &ProcedureSegments,
+        instructions: &mut Vec<Instruction>,
+    ) {
+        for segment_index in segments.segments() {
+            let filters = FilterUtils::get_all_filters_in_segment(self.query_syntax, segment_index);
+            for (filter_expr, filter_id) in filters {
+                let relative_subqueries_paths = self.filter_subquery_finder
+                    .get_subqueries_paths_in_filter(filter_expr, &filter_id).into_iter()
+                    .filter(|subquery_path| subquery_path.is_relative);
+                for subquery_path in relative_subqueries_paths {
+                    instructions.push(RegisterSubqueryPath { subquery_path })
+                }
+            }
+        }
+    }
 
     fn generate_object_selectors(
         &mut self,
@@ -92,6 +137,7 @@ impl IRGenerator<'_> {
         let wildcards = segments.wildcards();
         let filters_successors = segments.filters_successors();
         let mut instructions = Vec::new();
+        self.generate_register_relative_subqueries(segments, &mut instructions);
         for (name, occurrences) in segments.name_selectors() {
             let node_selected = !occurrences.finals().is_empty();
             let procedure_segments = ProcedureSegments::merge(
@@ -124,6 +170,7 @@ impl IRGenerator<'_> {
         let wildcards = segments.wildcards();
         let filters_successors = segments.filters_successors();
         let mut instructions = Vec::new();
+        self.generate_register_relative_subqueries(segments, &mut instructions);
         for (index, occurrences) in segments.non_negative_index_selectors() {
             let node_selected = !occurrences.finals().is_empty();
             let procedure_segments = ProcedureSegments::merge(
@@ -287,136 +334,6 @@ impl IRGenerator<'_> {
             }
         } else {
             instruction
-        }
-    }
-}
-
-struct FilterGenerator {
-    subquery_count: usize,
-}
-
-impl FilterGenerator {
-    pub fn new() -> FilterGenerator {
-        FilterGenerator {
-            subquery_count: 0
-        }
-    }
-
-    pub fn generate_filter_procedures(
-        &mut self,
-        query_syntax: &rsonpath_syntax::JsonPathQuery,
-    ) -> Vec<FilterProcedure> {
-        let mut filter_procedures = Vec::new();
-        for (filter_expression, id) in Self::get_all_filters(query_syntax) {
-            filter_procedures.push(self.generate_filter_procedure(filter_expression, id));
-        }
-        filter_procedures
-    }
-
-    fn get_all_filters(
-        query_syntax: &rsonpath_syntax::JsonPathQuery
-    ) -> Vec<(&rsonpath_syntax::LogicalExpr, (usize, usize))> {
-        let mut filters = Vec::new();
-        for (i, segment) in query_syntax.segments().iter().enumerate() {
-            let selectors = segment.selectors();
-            for (j, selector) in selectors.iter().enumerate() {
-                if let rsonpath_syntax::Selector::Filter(filter_expression) = selector {
-                    filters.push((filter_expression, (i, j)));
-                }
-            }
-        }
-        filters
-    }
-
-    fn generate_filter_procedure(
-        &mut self,
-        filter_expression: &rsonpath_syntax::LogicalExpr,
-        id: (usize, usize),
-    ) -> FilterProcedure {
-        self.subquery_count = 0;
-        let expression = self.generate_filter_expr(filter_expression);
-        FilterProcedure {
-            name: format!("Filter_{}_{}", id.0, id.1),
-            arity: self.subquery_count,
-            expression,
-        }
-    }
-
-    fn generate_filter_expr(&mut self, filter_expr: &rsonpath_syntax::LogicalExpr) -> FilterExpression {
-        match filter_expr {
-            rsonpath_syntax::LogicalExpr::Or(lhs, rhs) => {
-                Or {
-                    lhs: Box::new(self.generate_filter_expr(lhs)),
-                    rhs: Box::new(self.generate_filter_expr(rhs)),
-                }
-            }
-            rsonpath_syntax::LogicalExpr::And(lhs, rhs) => {
-                And {
-                    lhs: Box::new(self.generate_filter_expr(lhs)),
-                    rhs: Box::new(self.generate_filter_expr(rhs)),
-                }
-            }
-            rsonpath_syntax::LogicalExpr::Not(expr) => {
-                Not { expr: Box::new(self.generate_filter_expr(expr)) }
-            }
-            rsonpath_syntax::LogicalExpr::Comparison(comparison_expr) => {
-                Comparison {
-                    lhs: self.generate_comparable(comparison_expr.lhs()),
-                    rhs: self.generate_comparable(comparison_expr.rhs()),
-                    op: self.generate_comparison_op(comparison_expr.op()),
-                }
-            }
-            rsonpath_syntax::LogicalExpr::Test { .. } => {
-                self.subquery_count += 1;
-                BoolParam { id: self.subquery_count }
-            }
-        }
-    }
-
-    fn generate_comparable(&mut self, comparable: &rsonpath_syntax::Comparable) -> Comparable {
-        match comparable {
-            rsonpath_syntax::Comparable::Literal(literal) => {
-                Literal { value: self.generate_literal(literal) }
-            }
-            rsonpath_syntax::Comparable::AbsoluteSingularQuery { .. }
-            | rsonpath_syntax::Comparable::RelativeSingularQuery { .. } => {
-                self.subquery_count += 1;
-                Param { id: self.subquery_count }
-            }
-        }
-    }
-
-    fn generate_literal(&self, literal_syntax: &rsonpath_syntax::Literal) -> LiteralValue {
-        match literal_syntax {
-            rsonpath_syntax::Literal::String(json_str) => {
-                LiteralValue::String(json_str.unquoted().to_string())
-            },
-            rsonpath_syntax::Literal::Number(json_num) => {
-                match json_num {
-                    rsonpath_syntax::num::JsonNumber::Int(json_int) => {
-                        Int(json_int.as_i64())
-                    }
-                    rsonpath_syntax::num::JsonNumber::Float(json_float) => {
-                        Float(json_float.as_f64())
-                    }
-                }
-            }
-            rsonpath_syntax::Literal::Bool(bool_value) => Bool(*bool_value),
-            rsonpath_syntax::Literal::Null => Null
-        }
-    }
-
-    fn generate_comparison_op(
-        &self,
-        comparison_op_syntax: rsonpath_syntax::ComparisonOp,
-    ) -> ComparisonOp {
-        match comparison_op_syntax {
-            rsonpath_syntax::ComparisonOp::EqualTo => ComparisonOp::EqualTo,
-            rsonpath_syntax::ComparisonOp::NotEqualTo => ComparisonOp::NotEqualTo,
-            rsonpath_syntax::ComparisonOp::LesserOrEqualTo => ComparisonOp::LesserOrEqualTo,
-            rsonpath_syntax::ComparisonOp::GreaterOrEqualTo => ComparisonOp::GreaterOrEqualTo,
-            rsonpath_syntax::ComparisonOp::LessThan => ComparisonOp::LessThan,
-            rsonpath_syntax::ComparisonOp::GreaterThan => ComparisonOp::GreaterThan
         }
     }
 }
