@@ -18,21 +18,22 @@
         {
             {% call compile_instructions(instructions, current_node) %}
         }
-    {% when Instruction::ExecuteProcedureOnChild with { name } %}
+    {% when Instruction::ExecuteProcedureOnChild with { conditions, name } %}
         {% if !query_name.is_empty() %}
             {{query_name}}_{{name|lower}}({{current_node}}, all_results);
         {% else %}
             {{name|lower}}({{current_node}}, all_results);
         {% endif %}
-    {% when Instruction::SaveCurrentNodeDuringTraversal with { instruction, condition} %}
+    {% when Instruction::SaveCurrentNodeDuringTraversal with { condition, instruction } %}
         all_results.push_back(simdjson::to_string({{current_node}}));
         {% let template = InstructionTemplate::new(instruction, current_node, query_name) %}
         {{ template.render().unwrap() }}
     {% when Instruction::Continue %}
         continue;
     {% when Instruction::TraverseCurrentNodeSubtree %}
-    {% when Instruction::RegisterSubqueryPath { subquery_path }%}
-    {% when Instruction::TryUpdateSubqueries %}
+    {% when Instruction::StartFilterExecution with { filter_id} %}
+    {% when Instruction::EndFilterExecution %}
+    {% when Instruction::UpdateSubqueriesState %}
 {% endmatch %}
 
 {% macro compile_instructions(instructions, current_node) %}

@@ -1,31 +1,32 @@
+use std::collections::HashMap;
+
 use itertools::chain;
-use rsonpath_syntax::{JsonPathQuery, LogicalExpr, SingularJsonPathQuery, SingularSegment};
 use rsonpath_syntax::Comparable::{AbsoluteSingularQuery, RelativeSingularQuery};
-use rsonpath_syntax::Selector::{Index, Name};
 use rsonpath_syntax::TestExpr::{Absolute, Relative};
 
-use crate::ir::{Comparable, ComparisonOp, FilterExpression, FilterId, FilterProcedure, FilterSubqueryPath, LiteralValue, SegmentIndex};
+use crate::ir::{Comparable, ComparisonOp, FilterExpression, FilterId, FilterProcedure, FilterSubquery, LiteralValue, SegmentIndex};
 use crate::ir::Comparable::{Literal, Param};
 use crate::ir::FilterExpression::{And, BoolParam, Comparison, Not, Or};
+use crate::ir::FilterSubquerySegment::{Index, Name};
 use crate::ir::LiteralValue::{Bool, Float, Int, Null};
 
 pub struct FilterUtils {}
 
 impl FilterUtils {
     pub fn get_all_filters(
-        query_syntax: &JsonPathQuery
-    ) -> Vec<(&LogicalExpr, FilterId)> {
+        query_syntax: &rsonpath_syntax::JsonPathQuery
+    ) -> Vec<(&rsonpath_syntax::LogicalExpr, FilterId)> {
         let mut filters = Vec::new();
         for i in 0..query_syntax.segments().len() {
-            filters.append(&mut Self::get_all_filters_in_segment(query_syntax, i));
+            filters.append(&mut Self::get_filters_in_segment(query_syntax, i));
         }
         filters
     }
 
-    pub fn get_all_filters_in_segment(
-        query_syntax: &JsonPathQuery,
+    pub fn get_filters_in_segment(
+        query_syntax: &rsonpath_syntax::JsonPathQuery,
         segment_index: SegmentIndex,
-    ) -> Vec<(&LogicalExpr, FilterId)> {
+    ) -> Vec<(&rsonpath_syntax::LogicalExpr, FilterId)> {
         let mut filters = Vec::new();
         let selectors = query_syntax.segments()[segment_index].selectors();
         for (selector_index, selector) in selectors.iter().enumerate() {
@@ -37,146 +38,131 @@ impl FilterUtils {
     }
 }
 
-pub struct FilterSubqueryFinder {
-    subquery_count: usize,
-}
+pub struct FilterSubqueryFinder {}
 
 
 impl FilterSubqueryFinder {
-    pub fn new() -> FilterSubqueryFinder {
-        FilterSubqueryFinder { subquery_count: 0 }
-    }
-
-    pub fn get_all_subqueries_paths(
-        &mut self,
-        query_syntax: &JsonPathQuery,
-    ) -> Vec<FilterSubqueryPath> {
-        let mut result = Vec::new();
+    pub fn get_all_subqueries(
+        query_syntax: &rsonpath_syntax::JsonPathQuery,
+    ) -> HashMap<FilterId, Vec<FilterSubquery>> {
+        let mut result = HashMap::new();
         for (filter_expr, filter_id) in FilterUtils::get_all_filters(query_syntax) {
-            result.append(&mut self.get_subqueries_paths_in_filter(filter_expr, &filter_id));
+            result.insert(filter_id, Self::get_subqueries_in_filter(filter_expr));
         }
         result
     }
 
-    pub fn get_subqueries_paths_in_filter(
-        &mut self,
-        filter_expr: &LogicalExpr,
-        filter_id: &FilterId,
-    ) -> Vec<FilterSubqueryPath> {
-        self.subquery_count = 0;
-        self.get_all_subqueries_paths_in_expr(filter_expr, filter_id)
+    pub fn get_subqueries_in_filter(filter_expr: &rsonpath_syntax::LogicalExpr) -> Vec<FilterSubquery> {
+        Self::get_all_subqueries_paths_in_expr(filter_expr)
     }
 
     fn get_all_subqueries_paths_in_expr(
-        &mut self,
-        filter_expr: &LogicalExpr,
-        filter_id: &FilterId,
-    ) -> Vec<FilterSubqueryPath> {
+        filter_expr: &rsonpath_syntax::LogicalExpr,
+        //filter_id: &FilterId,
+    ) -> Vec<FilterSubquery> {
         match filter_expr {
-            LogicalExpr::Or(lhs, rhs) => {
+            rsonpath_syntax::LogicalExpr::Or(lhs, rhs) => {
                 chain![
-                    self.get_all_subqueries_paths_in_expr(lhs, filter_id),
-                    self.get_all_subqueries_paths_in_expr(rhs, filter_id)
+                    Self::get_all_subqueries_paths_in_expr(lhs),
+                    Self::get_all_subqueries_paths_in_expr(rhs)
                 ].collect()
             }
-            LogicalExpr::And(lhs, rhs) => {
+            rsonpath_syntax::LogicalExpr::And(lhs, rhs) => {
                 chain![
-                    self.get_all_subqueries_paths_in_expr(lhs, filter_id),
-                    self.get_all_subqueries_paths_in_expr(rhs, filter_id)
+                    Self::get_all_subqueries_paths_in_expr(lhs),
+                    Self::get_all_subqueries_paths_in_expr(rhs)
                 ].collect()
             }
-            LogicalExpr::Not(expr) => {
-                self.get_all_subqueries_paths_in_expr(expr, filter_id)
+            rsonpath_syntax::LogicalExpr::Not(expr) => {
+                Self::get_all_subqueries_paths_in_expr(expr)
             }
-            LogicalExpr::Comparison(comparison_expr) => {
+            rsonpath_syntax::LogicalExpr::Comparison(comparison_expr) => {
                 vec![
-                    self.get_subquery_from_comparable(comparison_expr.lhs(), filter_id),
-                    self.get_subquery_from_comparable(comparison_expr.rhs(), filter_id),
+                    Self::get_subquery_from_comparable(comparison_expr.lhs()),
+                    Self::get_subquery_from_comparable(comparison_expr.rhs()),
                 ].into_iter()
                     .filter(|subquery| subquery.is_some())
                     .map(|subquery| subquery.unwrap())
                     .collect()
             }
-            LogicalExpr::Test(test_expr) => {
-                self.subquery_count += 1;
-                let (relative, path) = match test_expr {
+            rsonpath_syntax::LogicalExpr::Test(test_expr) => {
+                let subquery = match test_expr {
                     Relative(subquery) => {
-                        (true, Self::get_subquery_path(subquery))
+                        Self::convert_subquery(subquery, false)
                     }
                     Absolute(subquery) => {
-                        (false, Self::get_subquery_path(subquery))
+                        Self::convert_subquery(subquery, true)
                     }
                 };
-                vec![
-                    FilterSubqueryPath::new(
-                        filter_id.clone(),
-                        self.subquery_count,
-                        path,
-                        relative,
-                    )
-                ]
+                vec![subquery]
             }
         }
     }
 
     fn get_subquery_from_comparable(
-        &mut self,
         comparison_expr: &rsonpath_syntax::Comparable,
-        filter_id: &FilterId,
-    ) -> Option<FilterSubqueryPath> {
-        let (relative, path) = match comparison_expr {
+    ) -> Option<FilterSubquery> {
+        let subquery = match comparison_expr {
             RelativeSingularQuery(subquery) => {
-                (true, Self::get_singular_subquery_path(subquery))
+                Some(Self::convert_singular_subquery(subquery, false))
             }
             AbsoluteSingularQuery(subquery) => {
-                (false, Self::get_singular_subquery_path(subquery))
+                Some(Self::convert_singular_subquery(subquery, true))
             }
             _ => return None
         };
-        self.subquery_count += 1;
-        Some(FilterSubqueryPath::new(filter_id.clone(), self.subquery_count, path, relative))
+        subquery
     }
 
-    fn get_subquery_path(subquery: &JsonPathQuery) -> String {
-        let mut path = String::new();
+    fn convert_subquery(subquery: &rsonpath_syntax::JsonPathQuery, is_absolute: bool) -> FilterSubquery {
+        let mut result = FilterSubquery {
+            is_absolute,
+            segments: Vec::new(),
+        };
         for segment in subquery.segments() {
             if segment.is_descendant() {
                 panic!()
             }
             for selector in segment.selectors().iter() {
                 match selector {
-                    Name(name) => {
-                        if !path.is_empty() {
-                            path.push('.');
-                        }
-                        path.push_str(name.unquoted())
+                    rsonpath_syntax::Selector::Name(name) => {
+                        result.segments.push(Name(name.unquoted().to_string()));
                     }
-                    Index(index) => {
-                        path.push_str(&format!("[{}]", index))
+                    rsonpath_syntax::Selector::Index(index) => {
+                        result.segments.push(Index(match index {
+                            rsonpath_syntax::Index::FromStart(index) => index.as_u64() as i64,
+                            rsonpath_syntax::Index::FromEnd(index) => -(index.as_u64() as i64),
+                        }));
                     }
                     _ => panic!()
                 }
             }
         }
-        path
+        result
     }
 
-    fn get_singular_subquery_path(subquery: &SingularJsonPathQuery) -> String {
-        let mut path = String::new();
+    fn convert_singular_subquery(
+        subquery: &rsonpath_syntax::SingularJsonPathQuery,
+        is_absolute: bool,
+    ) -> FilterSubquery {
+        let mut result = FilterSubquery {
+            is_absolute,
+            segments: Vec::new(),
+        };
         for segment in subquery.segments() {
             match segment {
-                SingularSegment::Name(name) => {
-                    if !path.is_empty() {
-                        path.push('.');
-                    }
-                    path.push_str(name.unquoted())
+                rsonpath_syntax::SingularSegment::Name(name) => {
+                    result.segments.push(Name(name.unquoted().to_string()));
                 }
-                SingularSegment::Index(index) => {
-                    path.push_str(&format!("[{}]", index))
+                rsonpath_syntax::SingularSegment::Index(index) => {
+                    result.segments.push(Index(match index {
+                        rsonpath_syntax::Index::FromStart(index) => index.as_u64() as i64,
+                        rsonpath_syntax::Index::FromEnd(index) => -(index.as_u64() as i64),
+                    }));
                 }
             }
         }
-        path
+        result
     }
 }
 
@@ -193,18 +179,21 @@ impl FilterGenerator {
 
     pub fn generate_filter_procedures(
         &mut self,
-        query_syntax: &JsonPathQuery,
-    ) -> Vec<FilterProcedure> {
-        let mut filter_procedures = Vec::new();
-        for (filter_expression, id) in FilterUtils::get_all_filters(query_syntax) {
-            filter_procedures.push(self.generate_filter_procedure(filter_expression, id));
+        query_syntax: &rsonpath_syntax::JsonPathQuery,
+    ) -> HashMap<FilterId, FilterProcedure> {
+        let mut filter_procedures = HashMap::new();
+        for (filter_expression, filter_id) in FilterUtils::get_all_filters(query_syntax) {
+            filter_procedures.insert(
+                filter_id.clone(),
+                self.generate_filter_procedure(filter_expression, filter_id),
+            );
         }
         filter_procedures
     }
 
     fn generate_filter_procedure(
         &mut self,
-        filter_expression: &LogicalExpr,
+        filter_expression: &rsonpath_syntax::LogicalExpr,
         id: FilterId,
     ) -> FilterProcedure {
         self.subquery_count = 0;
@@ -216,31 +205,34 @@ impl FilterGenerator {
         }
     }
 
-    fn generate_filter_expr(&mut self, filter_expr: &LogicalExpr) -> FilterExpression {
+    fn generate_filter_expr(
+        &mut self,
+        filter_expr: &rsonpath_syntax::LogicalExpr,
+    ) -> FilterExpression {
         match filter_expr {
-            LogicalExpr::Or(lhs, rhs) => {
+            rsonpath_syntax::LogicalExpr::Or(lhs, rhs) => {
                 Or {
                     lhs: Box::new(self.generate_filter_expr(lhs)),
                     rhs: Box::new(self.generate_filter_expr(rhs)),
                 }
             }
-            LogicalExpr::And(lhs, rhs) => {
+            rsonpath_syntax::LogicalExpr::And(lhs, rhs) => {
                 And {
                     lhs: Box::new(self.generate_filter_expr(lhs)),
                     rhs: Box::new(self.generate_filter_expr(rhs)),
                 }
             }
-            LogicalExpr::Not(expr) => {
+            rsonpath_syntax::LogicalExpr::Not(expr) => {
                 Not { expr: Box::new(self.generate_filter_expr(expr)) }
             }
-            LogicalExpr::Comparison(comparison_expr) => {
+            rsonpath_syntax::LogicalExpr::Comparison(comparison_expr) => {
                 Comparison {
                     lhs: self.generate_comparable(comparison_expr.lhs()),
                     rhs: self.generate_comparable(comparison_expr.rhs()),
                     op: self.generate_comparison_op(comparison_expr.op()),
                 }
             }
-            LogicalExpr::Test { .. } => {
+            rsonpath_syntax::LogicalExpr::Test { .. } => {
                 self.subquery_count += 1;
                 BoolParam { id: self.subquery_count }
             }

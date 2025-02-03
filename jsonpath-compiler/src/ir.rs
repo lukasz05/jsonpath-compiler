@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::Debug;
 
 pub mod generator;
@@ -7,7 +8,8 @@ mod filter_generator;
 #[derive(Debug)]
 pub struct Query {
     pub procedures: Vec<Procedure>,
-    pub filter_procedures: Vec<FilterProcedure>
+    pub filter_procedures: HashMap<FilterId, FilterProcedure>,
+    pub filter_subqueries: HashMap<FilterId, Vec<FilterSubquery>>
 }
 
 #[derive(Debug)]
@@ -23,15 +25,20 @@ pub enum Instruction {
     IfCurrentIndexEquals { index: u64, instructions: Vec<Instruction> },
     IfCurrentIndexFromEndEquals { index: u64, instructions: Vec<Instruction> },
     IfCurrentMemberNameEquals { name: String, instructions: Vec<Instruction> },
-    ExecuteProcedureOnChild { name: String },
+    ExecuteProcedureOnChild {
+        conditions: Vec<Option<SelectionCondition>>,
+        name: String,
+    },
     SaveCurrentNodeDuringTraversal {
         condition: Option<SelectionCondition>,
         instruction: Box<Instruction>,
     },
     Continue,
     TraverseCurrentNodeSubtree,
-    RegisterSubqueryPath { subquery_path: FilterSubqueryPath },
-    TryUpdateSubqueries
+    //RegisterSubqueryPath { subquery_path: FilterSubqueryPath },
+    StartFilterExecution { filter_id: FilterId },
+    EndFilterExecution,
+    UpdateSubqueriesState,
 }
 
 impl Instruction {
@@ -53,30 +60,6 @@ impl Instruction {
 }
 
 #[derive(Debug)]
-pub struct FilterSubqueryPath {
-    filter_id: FilterId,
-    subquery_index: usize,
-    path: String,
-    is_relative: bool,
-}
-
-impl FilterSubqueryPath {
-    pub fn new(
-        filter_id: FilterId,
-        subquery_index: usize,
-        path: String,
-        is_relative: bool,
-    ) -> FilterSubqueryPath {
-        FilterSubqueryPath {
-            filter_id,
-            subquery_index,
-            path,
-            is_relative,
-        }
-    }
-}
-
-#[derive(Debug)]
 pub struct Name(pub String);
 
 #[derive(Debug)]
@@ -88,6 +71,7 @@ pub struct FilterProcedure {
     pub arity: usize,
     pub expression: FilterExpression,
 }
+
 
 #[derive(Debug)]
 pub enum FilterExpression {
@@ -126,6 +110,7 @@ pub enum ComparisonOp {
 #[derive(Eq, PartialEq, Hash, Clone, Ord, PartialOrd, Debug)]
 pub enum SelectionCondition {
     Filter { id: FilterId },
+    RuntimeSegmentCondition { segment_index: SegmentIndex },
     Or { lhs: Box<SelectionCondition>, rhs: Box<SelectionCondition> },
     And { lhs: Box<SelectionCondition>, rhs: Box<SelectionCondition> },
 }
@@ -220,6 +205,18 @@ impl FilterId {
     pub fn new(segment_index: SegmentIndex, selector_index: SelectorIndex) -> FilterId {
         FilterId { segment_index, selector_index }
     }
+}
+
+#[derive(Debug)]
+pub struct FilterSubquery {
+    pub is_absolute: bool,
+    pub segments: Vec<FilterSubquerySegment>,
+}
+
+#[derive(Debug)]
+pub enum FilterSubquerySegment {
+    Name(String),
+    Index(i64),
 }
 
 pub type SegmentIndex = usize;

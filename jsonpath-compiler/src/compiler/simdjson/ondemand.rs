@@ -1,9 +1,10 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::string::ToString;
+
 use askama::Template;
 use clang_format::{clang_format_with_style, ClangFormatStyle};
 
-use crate::ir::{Instruction, Procedure, Query};
+use crate::ir::{FilterId, FilterProcedure, FilterSubquery, FilterSubquerySegment, Instruction, Procedure, Query};
 use crate::ir::Instruction::{ForEachElement, ForEachMember};
 
 type NamedQuery<'a> = (&'a str, &'a Query);
@@ -14,6 +15,8 @@ struct ToOnDemandStandaloneTemplate<'a> {
     logging: bool,
     mmap: bool,
     procedures: Vec<ProcedureTemplate<'a>>,
+    filter_procedures: &'a HashMap<FilterId, FilterProcedure>,
+    filter_subqueries: &'a HashMap<FilterId, Vec<FilterSubquery>>,
 }
 
 impl ToOnDemandStandaloneTemplate<'_> {
@@ -22,9 +25,21 @@ impl ToOnDemandStandaloneTemplate<'_> {
             logging,
             mmap,
             procedures: query.procedures.iter()
-                .map(|procedure| ProcedureTemplate::new(procedure))
+                .map(|procedure| {
+                    ProcedureTemplate::new(
+                        procedure,
+                        &query.filter_subqueries,
+                        !query.filter_procedures.is_empty(),
+                    )
+                })
                 .collect(),
+            filter_procedures: &query.filter_procedures,
+            filter_subqueries: &query.filter_subqueries,
         }
+    }
+
+    fn are_any_filters(&self) -> bool {
+        !self.filter_procedures.is_empty()
     }
 }
 
@@ -49,7 +64,12 @@ impl ToOnDemandLibTemplate<'_> {
         let mut query_names = HashSet::new();
         for (name, query) in queries {
             for procedure in &query.procedures {
-                procedures.push(ProcedureTemplate::new_with_query_name(procedure, name));
+                procedures.push(ProcedureTemplate::new_with_query_name(
+                    procedure,
+                    &query.filter_subqueries,
+                    !query.filter_procedures.is_empty(),
+                    name)
+                );
                 query_names.insert(name.to_string());
             }
         }
@@ -70,25 +90,56 @@ impl ToOnDemandLibTemplate<'_> {
 struct ProcedureTemplate<'a> {
     name: String,
     instructions: Vec<InstructionTemplate<'a>>,
+    filter_subqueries: &'a HashMap<FilterId, Vec<FilterSubquery>>,
+    are_any_filters: bool
 }
 
 impl ProcedureTemplate<'_> {
-    fn new(procedure: &Procedure) -> ProcedureTemplate {
+    fn new<'a>(
+        procedure: &'a Procedure,
+        filter_subqueries: &'a HashMap<FilterId, Vec<FilterSubquery>>,
+        are_any_filters: bool,
+    ) -> ProcedureTemplate<'a> {
         ProcedureTemplate {
             name: procedure.name.clone(),
             instructions: procedure.instructions.iter()
-                .map(|instruction| InstructionTemplate::new(instruction, "node", ""))
+                .map(|instruction| {
+                    InstructionTemplate::new(
+                        instruction,
+                        "node",
+                        "",
+                        Some(filter_subqueries),
+                        are_any_filters,
+                    )
+                })
                 .collect(),
+            filter_subqueries,
+            are_any_filters
         }
     }
 
-    fn new_with_query_name<'a>(procedure: &'a Procedure, query_name: &'a str) -> ProcedureTemplate<'a> {
+    fn new_with_query_name<'a>(
+        procedure: &'a Procedure,
+        filter_subqueries: &'a HashMap<FilterId, Vec<FilterSubquery>>,
+        are_any_filters: bool,
+        query_name: &'a str,
+    ) -> ProcedureTemplate<'a> {
         let procedure_name = format!("{}_{}", query_name, procedure.name);
         ProcedureTemplate {
             name: procedure_name,
             instructions: procedure.instructions.iter()
-                .map(|instruction| InstructionTemplate::new(instruction, "node", query_name))
+                .map(|instruction| {
+                    InstructionTemplate::new(
+                        instruction,
+                        "node",
+                        query_name,
+                        Some(filter_subqueries),
+                        are_any_filters,
+                    )
+                })
                 .collect(),
+            filter_subqueries,
+            are_any_filters
         }
     }
 
@@ -109,19 +160,25 @@ impl ProcedureTemplate<'_> {
 struct InstructionTemplate<'a> {
     instruction: &'a Instruction,
     current_node: &'a str,
-    query_name: &'a str
+    query_name: &'a str,
+    filter_subqueries: Option<&'a HashMap<FilterId, Vec<FilterSubquery>>>,
+    are_any_filters: bool
 }
 
 impl InstructionTemplate<'_> {
     fn new<'a>(
         instruction: &'a Instruction,
         current_node: &'a str,
-        query_name: &'a str
+        query_name: &'a str,
+        filter_subqueries: Option<&'a HashMap<FilterId, Vec<FilterSubquery>>>,
+        are_any_filters: bool
     ) -> InstructionTemplate<'a> {
         InstructionTemplate {
             instruction,
             current_node,
-            query_name
+            query_name,
+            filter_subqueries,
+            are_any_filters
         }
     }
 }
@@ -194,6 +251,6 @@ impl ToOnDemandCompiler<'_> {
 }
 
 static EMPTY_OBJECT_ITERATION: InstructionTemplate =
-    InstructionTemplate { instruction: &ForEachMember { instructions: vec![] }, current_node: "node", query_name: ""};
+    InstructionTemplate { instruction: &ForEachMember { instructions: vec![] }, current_node: "node", query_name: "", filter_subqueries: None, are_any_filters: false };
 static EMPTY_ARRAY_ITERATION: InstructionTemplate =
-    InstructionTemplate { instruction: &ForEachElement { instructions: vec![] }, current_node: "node", query_name: ""};
+    InstructionTemplate { instruction: &ForEachElement { instructions: vec![] }, current_node: "node", query_name: "", filter_subqueries: None, are_any_filters: false };
