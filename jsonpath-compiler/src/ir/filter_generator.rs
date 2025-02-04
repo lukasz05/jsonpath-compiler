@@ -233,8 +233,9 @@ impl FilterGenerator {
                 }
             }
             rsonpath_syntax::LogicalExpr::Test { .. } => {
+                let param = BoolParam { id: self.subquery_count };
                 self.subquery_count += 1;
-                BoolParam { id: self.subquery_count }
+                param
             }
         }
     }
@@ -245,8 +246,9 @@ impl FilterGenerator {
                 Literal { value: self.generate_literal(literal) }
             }
             AbsoluteSingularQuery { .. } | RelativeSingularQuery { .. } => {
+                let param = Param { id: self.subquery_count };
                 self.subquery_count += 1;
-                Param { id: self.subquery_count }
+                param
             }
         }
     }
@@ -278,7 +280,7 @@ impl FilterGenerator {
         match comparison_op_syntax {
             rsonpath_syntax::ComparisonOp::EqualTo => ComparisonOp::EqualTo,
             rsonpath_syntax::ComparisonOp::NotEqualTo => ComparisonOp::NotEqualTo,
-            rsonpath_syntax::ComparisonOp::LesserOrEqualTo => ComparisonOp::LesserOrEqualTo,
+            rsonpath_syntax::ComparisonOp::LesserOrEqualTo => ComparisonOp::LessOrEqualTo,
             rsonpath_syntax::ComparisonOp::GreaterOrEqualTo => ComparisonOp::GreaterOrEqualTo,
             rsonpath_syntax::ComparisonOp::LessThan => ComparisonOp::LessThan,
             rsonpath_syntax::ComparisonOp::GreaterThan => ComparisonOp::GreaterThan

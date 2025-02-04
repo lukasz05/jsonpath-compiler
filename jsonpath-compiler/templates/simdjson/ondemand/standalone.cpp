@@ -24,9 +24,68 @@ constexpr uint8_t MAX_SUBQUERIES_IN_FILTER = 5; // TODO
 struct selection_condition;
 struct filter;
 struct filter_instance;
-struct subquery_path_data;
 struct subquery_path_segment;
+struct subquery_result;
 struct current_node_data;
+
+struct subquery_result {
+    string str_value;
+    int64_t int_value;
+    double float_value;
+    bool bool_value;
+    enum {STRING, INT, FLOAT, BOOL, __NULL} type;
+
+    auto operator<=>(const subquery_result& other) const
+    {
+        // TODO
+        return strong_ordering::less;
+    }
+    auto operator<=>(const string& other) const
+    {
+        // TODO
+        return strong_ordering::less;
+    }
+    auto operator<=>(const int64_t& other) const
+    {
+        // TODO
+        return strong_ordering::less;
+    }
+    auto operator<=>(const double& other) const
+    {
+        // TODO
+        return strong_ordering::less;
+    }
+    auto operator<=>(const bool& other) const
+    {
+        // TODO
+        return strong_ordering::less;
+    }
+    bool operator==(const subquery_result& other) const
+    {
+        return false;
+    }
+    bool operator==(const string& other) const
+    {
+        return false;
+    }
+    bool operator==(const int64_t& other)
+    {
+        return false;
+    }
+    bool operator==(const double& other)
+    {
+        return false;
+    }
+    bool operator==(const bool& other)
+    {
+        return false;
+    }
+    explicit operator bool() const
+    {
+        // TODO
+        return false;
+    }
+};
 
 struct selection_condition {
     enum {AND, OR, FILTER} type;
@@ -39,6 +98,7 @@ struct filter_instance {
     const uint8_t filter_segment_index;
     const uint8_t filter_selector_index;
     subquery_path_segment *current_subqueries_segments[MAX_SUBQUERIES_IN_FILTER];
+    subquery_result subqueries_results[MAX_SUBQUERIES_IN_FILTER];
 };
 
 struct subquery_path_segment {
@@ -161,4 +221,8 @@ void traverse_and_save_selected_nodes(ondemand::value &node, string* result_buf)
 
 {% for procedure in procedures %}
     {{ procedure.render().unwrap() }}
+{% endfor %}
+
+{% for filter_procedure in filter_procedures %}
+    {{ filter_procedure.render().unwrap() }}
 {% endfor %}

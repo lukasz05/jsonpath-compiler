@@ -101,7 +101,7 @@ pub enum LiteralValue {
 pub enum ComparisonOp {
     EqualTo,
     NotEqualTo,
-    LesserOrEqualTo,
+    LessOrEqualTo,
     GreaterOrEqualTo,
     LessThan,
     GreaterThan,

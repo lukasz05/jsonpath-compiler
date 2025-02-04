@@ -4,7 +4,7 @@ use std::string::ToString;
 use askama::Template;
 use clang_format::{clang_format_with_style, ClangFormatStyle};
 
-use crate::ir::{FilterId, FilterProcedure, FilterSubquery, FilterSubquerySegment, Instruction, Procedure, Query};
+use crate::ir::{FilterExpression, FilterId, FilterProcedure, FilterSubquery, FilterSubquerySegment, Instruction, Procedure, Query};
 use crate::ir::Instruction::{ForEachElement, ForEachMember};
 
 type NamedQuery<'a> = (&'a str, &'a Query);
@@ -15,7 +15,7 @@ struct ToOnDemandStandaloneTemplate<'a> {
     logging: bool,
     mmap: bool,
     procedures: Vec<ProcedureTemplate<'a>>,
-    filter_procedures: &'a HashMap<FilterId, FilterProcedure>,
+    filter_procedures: Vec<FilterProcedureTemplate<'a>>,
     filter_subqueries: &'a HashMap<FilterId, Vec<FilterSubquery>>,
 }
 
@@ -33,7 +33,11 @@ impl ToOnDemandStandaloneTemplate<'_> {
                     )
                 })
                 .collect(),
-            filter_procedures: &query.filter_procedures,
+            filter_procedures: query.filter_procedures.values()
+                .map(|filter_procedure| {
+                    FilterProcedureTemplate::new(filter_procedure)
+                })
+                .collect(),
             filter_subqueries: &query.filter_subqueries,
         }
     }
@@ -183,6 +187,36 @@ impl InstructionTemplate<'_> {
     }
 }
 
+#[derive(Template)]
+#[template(path = "simdjson/ondemand/filter_procedure.cpp", escape = "none")]
+struct FilterProcedureTemplate<'a> {
+    name: String,
+    arity: usize,
+    expression: FilterExpressionTemplate<'a>,
+}
+
+impl FilterProcedureTemplate<'_> {
+    fn new<'a>(filter_procedure: &FilterProcedure) -> FilterProcedureTemplate {
+        FilterProcedureTemplate {
+            name: filter_procedure.name.clone(),
+            arity: filter_procedure.arity,
+            expression: FilterExpressionTemplate::new(&filter_procedure.expression),
+        }
+    }
+}
+
+#[derive(Template)]
+#[template(path = "simdjson/ondemand/filter_expression.cpp", escape = "none")]
+struct FilterExpressionTemplate<'a> {
+    expression: &'a FilterExpression,
+}
+
+impl FilterExpressionTemplate<'_> {
+    fn new(expression: &FilterExpression) -> FilterExpressionTemplate {
+        FilterExpressionTemplate { expression }
+    }
+}
+
 pub struct ToOnDemandCompiler<'a> {
     queries: Vec<NamedQuery<'a>>,
     standalone: bool,
@@ -247,6 +281,7 @@ impl ToOnDemandCompiler<'_> {
             code = template.render().unwrap();
         }
         clang_format_with_style(&code, &ClangFormatStyle::Microsoft).unwrap()
+        //code
     }
 }
 
