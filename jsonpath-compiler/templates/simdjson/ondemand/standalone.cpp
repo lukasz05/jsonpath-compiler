@@ -122,10 +122,8 @@ struct current_node_data {
         {% for (segment_index, segment) in subquery.segments.iter().enumerate().rev() %}
             subquery_path_segment filter_{{filter_id.segment_index}}_{{filter_id.selector_index}}_subquery_{{subquery_index}}_segment_{{segment_index}} {
             {% match segment %}
-                {% when FilterSubquerySegment::Name(name) %}
-                true, "{{name}}", 0,
-                {% when FilterSubquerySegment::Index(index) %}
-                false, nullptr, {{index}},
+                {% when FilterSubquerySegment::Name(name) %} true, "{{name}}", 0,
+                {% when FilterSubquerySegment::Index(index) %} false, nullptr, {{index}},
             {% endmatch %}
             {% if segment_index == subquery.segments.len() - 1 %}
                 nullptr
@@ -137,6 +135,35 @@ struct current_node_data {
     {% endfor %}
 {% endfor %}
 
+{% for filter_procedure in filter_procedures %}
+    bool {{filter_procedure.name|lower}}(subquery_result params[]);
+{% endfor %}
+
+
+typedef bool(*filter_function_ptr)(subquery_result[]);
+
+filter_function_ptr get_filter_function(uint8_t filter_segment_index, uint8_t filter_selector_index) {
+    {% for filter_procedure in filter_procedures %}
+        if (filter_segment_index == {{filter_procedure.filter_id.segment_index}} && filter_selector_index == {{filter_procedure.filter_id.selector_index}})
+            return &{{filter_procedure.name|lower}};
+    {% endfor %}
+    return nullptr;
+}
+
+bool evaluate_selection_condition(const selection_condition *condition) {
+    if (condition == nullptr) return true;
+    switch (condition->type) {
+        case selection_condition::AND:
+            return evaluate_selection_condition(condition->lhs) && evaluate_selection_condition(condition->rhs);
+        case selection_condition::OR:
+            return evaluate_selection_condition(condition->lhs) || evaluate_selection_condition(condition->rhs);
+        case selection_condition::FILTER:
+            auto filter_instance = condition->filter;
+            auto filter_function = get_filter_function(filter_instance->filter_segment_index, filter_instance->filter_selector_index);
+            return filter_function(filter_instance->subqueries_results);
+    }
+}
+
 {% endif %}
 
 {% if mmap %}
@@ -147,7 +174,7 @@ string read_input(const char* filename);
 
 {% for procedure in procedures %}
 {% if Self::are_any_filters(self) %}
-void {{procedure.name|lower}}(ondemand::value &node, string *result_buf, vector<tuple<string *, size_t, size_t>> &all_results, selection_condition segment_conditions[], vector<filter_instance*> &filter_instances, current_node_data current_node);
+void {{procedure.name|lower}}(ondemand::value &node, string *result_buf, vector<tuple<string *, size_t, size_t, selection_condition*>> &all_results, selection_condition *segment_conditions[], vector<filter_instance*> &filter_instances, current_node_data current_node);
 {% else %}
 void {{procedure.name|lower}}(ondemand::value &node, string *result_buf, vector<tuple<string *, size_t, size_t>> &all_results);
 {% endif %}
@@ -164,23 +191,34 @@ int main(int argc, char **argv)
     ondemand::parser parser;
     ondemand::document doc = parser.iterate(json);
     ondemand::value root_node = doc.get_value().value();
-    vector<tuple<string *, size_t, size_t>> all_results;
     {% if Self::are_any_filters(self) %}
+    vector<tuple<string *, size_t, size_t, selection_condition*>> all_results;
     vector<filter_instance*> filter_instances;
-
     selectors_0(root_node, nullptr, all_results, nullptr, filter_instances, {false, false, 0, 0, {}});
     {% else %}
+    vector<tuple<string *, size_t, size_t>> all_results;
     selectors_0(root_node, nullptr, all_results);
     {% endif %}
     cout << "[\n";
     bool first = true;
     string *prev_ptr = nullptr;
+    {% if Self::are_any_filters(self) %}
+    for (const auto &[buf_ptr, start, end, selection_condition] : all_results)
+    {% else %}
     for (const auto &[buf_ptr, start, end] : all_results)
+    {% endif %}
     {
+        {% if Self::are_any_filters(self) %}
+        if (evaluate_selection_condition(selection_condition))
+        {
+        {% endif %}
         if (!first)
             cout << ",";
         cout << "  " << string_view(buf_ptr->data() + start, end - start);
         first = false;
+        {% if Self::are_any_filters(self) %}
+        }
+        {% endif %}
         if (prev_ptr != nullptr && buf_ptr != prev_ptr)
             delete prev_ptr;
         prev_ptr = buf_ptr;

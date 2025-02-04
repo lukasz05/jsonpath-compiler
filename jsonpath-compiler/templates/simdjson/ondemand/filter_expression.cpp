@@ -21,12 +21,12 @@
             {% when crate::ir::ComparisonOp::GreaterThan %} >
         {% endmatch %}
         {% call compile_comparable(rhs) %})
-    {% when FilterExpression::BoolParam with {id} %} param{{id}}
+    {% when FilterExpression::BoolParam with {id} %} params[{{id}}]
 {% endmatch %}
 
 {% macro compile_comparable(comparable) %}
     {% match comparable %}
-        {% when Comparable::Param with {id} %} param{{id}}
+        {% when Comparable::Param with {id} %} params[{{id}}]
         {% when Comparable::Literal with {value} %}
             {% match value %}
                 {% when LiteralValue::String with (str) %} "{{str}}"

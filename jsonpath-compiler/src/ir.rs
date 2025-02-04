@@ -68,6 +68,7 @@ pub struct Index(pub i64);
 #[derive(Debug)]
 pub struct FilterProcedure {
     pub name: String,
+    pub filter_id: FilterId,
     pub arity: usize,
     pub expression: FilterExpression,
 }

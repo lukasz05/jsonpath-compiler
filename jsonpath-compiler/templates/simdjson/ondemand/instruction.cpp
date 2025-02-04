@@ -39,7 +39,7 @@
         if (result_buf == nullptr)
             result_buf = new string();
         size_t result_i = all_results.size();
-        all_results.emplace_back(result_buf, result_buf->size(), 0);
+        all_results.emplace_back(result_buf, result_buf->size(), 0, new selection_condition);
         {% let template = InstructionTemplate::new(instruction, current_node, query_name, filter_subqueries.to_owned(), are_any_filters.clone()) %}
         {{ template.render().unwrap() }}
         get<2>(all_results[result_i]) = result_buf->size();

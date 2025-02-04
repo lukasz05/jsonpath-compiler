@@ -200,6 +200,7 @@ impl FilterGenerator {
         let expression = self.generate_filter_expr(filter_expression);
         FilterProcedure {
             name: format!("Filter_{}_{}", id.segment_index, id.selector_index),
+            filter_id: id,
             arity: self.subquery_count,
             expression,
         }

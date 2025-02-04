@@ -4,7 +4,7 @@ use std::string::ToString;
 use askama::Template;
 use clang_format::{clang_format_with_style, ClangFormatStyle};
 
-use crate::ir::{FilterExpression, FilterId, FilterProcedure, FilterSubquery, FilterSubquerySegment, Instruction, Procedure, Query};
+use crate::ir::{FilterExpression, FilterId, FilterProcedure, FilterSubquery, FilterSubquerySegment, Instruction, Procedure, Query, Comparable, LiteralValue};
 use crate::ir::Instruction::{ForEachElement, ForEachMember};
 
 type NamedQuery<'a> = (&'a str, &'a Query);
@@ -191,6 +191,7 @@ impl InstructionTemplate<'_> {
 #[template(path = "simdjson/ondemand/filter_procedure.cpp", escape = "none")]
 struct FilterProcedureTemplate<'a> {
     name: String,
+    filter_id: FilterId,
     arity: usize,
     expression: FilterExpressionTemplate<'a>,
 }
@@ -199,6 +200,7 @@ impl FilterProcedureTemplate<'_> {
     fn new<'a>(filter_procedure: &FilterProcedure) -> FilterProcedureTemplate {
         FilterProcedureTemplate {
             name: filter_procedure.name.clone(),
+            filter_id: filter_procedure.filter_id.clone(),
             arity: filter_procedure.arity,
             expression: FilterExpressionTemplate::new(&filter_procedure.expression),
         }
