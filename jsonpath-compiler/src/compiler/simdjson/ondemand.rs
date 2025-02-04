@@ -4,7 +4,7 @@ use std::string::ToString;
 use askama::Template;
 use clang_format::{clang_format_with_style, ClangFormatStyle};
 
-use crate::ir::{FilterExpression, FilterId, FilterProcedure, FilterSubquery, FilterSubquerySegment, Instruction, Procedure, Query, Comparable, LiteralValue};
+use crate::ir::{FilterExpression, FilterId, FilterProcedure, FilterSubquery, FilterSubquerySegment, Instruction, Procedure, Query, Comparable, LiteralValue, SelectionCondition};
 use crate::ir::Instruction::{ForEachElement, ForEachMember};
 
 type NamedQuery<'a> = (&'a str, &'a Query);
@@ -216,6 +216,18 @@ struct FilterExpressionTemplate<'a> {
 impl FilterExpressionTemplate<'_> {
     fn new(expression: &FilterExpression) -> FilterExpressionTemplate {
         FilterExpressionTemplate { expression }
+    }
+}
+
+#[derive(Template)]
+#[template(path = "simdjson/ondemand/selection_condition.cpp", escape = "none")]
+struct SelectionConditionTemplate<'a> {
+    condition: &'a SelectionCondition,
+}
+
+impl SelectionConditionTemplate<'_> {
+    fn new(condition: &SelectionCondition) -> SelectionConditionTemplate {
+        SelectionConditionTemplate {condition}
     }
 }
 

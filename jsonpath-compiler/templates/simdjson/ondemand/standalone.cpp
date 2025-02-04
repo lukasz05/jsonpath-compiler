@@ -20,6 +20,7 @@ using namespace simdjson;
 {% if Self::are_any_filters(self) %}
 
 constexpr uint8_t MAX_SUBQUERIES_IN_FILTER = 5; // TODO
+constexpr uint8_t SEGMENT_COUNT = 10; // TODO
 
 struct selection_condition;
 struct filter;
@@ -80,7 +81,7 @@ struct subquery_result {
     {
         return false;
     }
-    explicit operator bool() const
+    operator bool() const
     {
         // TODO
         return false;
@@ -88,10 +89,22 @@ struct subquery_result {
 };
 
 struct selection_condition {
-    enum {AND, OR, FILTER} type;
-    selection_condition *lhs;
-    selection_condition *rhs;
-    filter_instance *filter;
+    const enum {AND, OR, FILTER} type;
+    const selection_condition *lhs;
+    const selection_condition *rhs;
+    const filter_instance *filter;
+
+    static selection_condition* new_and(const selection_condition *lhs, const selection_condition *rhs) {
+        return new selection_condition {AND, lhs, rhs, nullptr};
+    }
+
+    static selection_condition* new_or(const selection_condition *lhs, const selection_condition *rhs) {
+        return new selection_condition {OR, lhs, rhs, nullptr};
+    }
+
+    static selection_condition* new_filter(const filter_instance *filter) {
+        return new selection_condition {FILTER, nullptr, nullptr, filter};
+    }
 };
 
 struct filter_instance {
@@ -160,7 +173,7 @@ bool evaluate_selection_condition(const selection_condition *condition) {
         case selection_condition::FILTER:
             auto filter_instance = condition->filter;
             auto filter_function = get_filter_function(filter_instance->filter_segment_index, filter_instance->filter_selector_index);
-            return filter_function(filter_instance->subqueries_results);
+            return filter_function((subquery_result *)filter_instance->subqueries_results);
     }
 }
 

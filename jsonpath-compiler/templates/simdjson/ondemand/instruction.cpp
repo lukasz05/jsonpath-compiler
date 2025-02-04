@@ -19,27 +19,42 @@
             {% call compile_instructions(instructions, current_node) %}
         }
     {% when Instruction::ExecuteProcedureOnChild with { conditions, name } %}
-        {% if !query_name.is_empty() %}
-            {{query_name}}_{{name|lower}}({{current_node}}, result_buf, all_results
-        {% else %}
-            {{name|lower}}({{current_node}}, result_buf, all_results
-        {% endif %}
         {% if are_any_filters %}
-            , nullptr, filter_instances,
+            selection_condition* new_segment_conditions[SEGMENT_COUNT] = {};
+            {% for (i, condition) in conditions.iter().enumerate() %}
+                {% if let Some(condition) = condition %}
+                    {% let template = SelectionConditionTemplate::new(condition) %}
+                    new_segment_conditions[{{i}}] = segment_conditions[{{i}}] == nullptr
+                        ? {{ template.render().unwrap() }}
+                        : selection_condition::new_and(segment_conditions[{{i}}], {{ template.render().unwrap() }});
+                {% endif %}
+            {% endfor %}
+            {% if !query_name.is_empty() %}{{query_name}}_{{name|lower}}{% else %}{{name|lower}}{% endif %}({{current_node}}, result_buf, all_results,
+            new_segment_conditions, filter_instances,
             {% if current_node == "field.value()" %}
-            { true, false, 0, 0, key}
+            { true, false, 0, 0, key});
             {% else if current_node == "element" %}
-            { false, true, array_length, index, {}}
+            { false, true, array_length, index, {}});
             {% else %}
-            { false, false, 0, 0, {}}
+            { false, false, 0, 0, {}});
             {% endif %}
+        {% else %}
+            {% if !query_name.is_empty() %}{{query_name}}_{{name|lower}}{% else %}{{name|lower}}{% endif %}({{current_node}}, result_buf, all_results);
         {% endif %}
-        );
     {% when Instruction::SaveCurrentNodeDuringTraversal with { condition, instruction } %}
         if (result_buf == nullptr)
             result_buf = new string();
         size_t result_i = all_results.size();
-        all_results.emplace_back(result_buf, result_buf->size(), 0, new selection_condition);
+        {% if are_any_filters %}
+            {% if let Some(condition) = condition %}
+            {% let template = SelectionConditionTemplate::new(condition) %}
+            all_results.emplace_back(result_buf, result_buf->size(), 0, {{ template.render().unwrap() }});
+            {% else %}
+            all_results.emplace_back(result_buf, result_buf->size(), 0, nullptr);
+            {% endif %}
+        {% else %}
+        all_results.emplace_back(result_buf, result_buf->size(), 0);
+        {% endif %}
         {% let template = InstructionTemplate::new(instruction, current_node, query_name, filter_subqueries.to_owned(), are_any_filters.clone()) %}
         {{ template.render().unwrap() }}
         get<2>(all_results[result_i]) = result_buf->size();
