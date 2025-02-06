@@ -21,7 +21,7 @@
             {% when crate::ir::ComparisonOp::GreaterThan %} >
         {% endmatch %}
         {% call compile_comparable(rhs) %})
-    {% when FilterExpression::BoolParam with {id} %} params[{{id}}]
+    {% when FilterExpression::ExistenceTest with {param_id} %} (params[{{param_id}}].type != subquery_result::NOTHING)
 {% endmatch %}
 
 {% macro compile_comparable(comparable) %}

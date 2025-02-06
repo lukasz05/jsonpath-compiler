@@ -6,7 +6,7 @@ use rsonpath_syntax::TestExpr::{Absolute, Relative};
 
 use crate::ir::{Comparable, ComparisonOp, FilterExpression, FilterId, FilterProcedure, FilterSubquery, LiteralValue, SegmentIndex};
 use crate::ir::Comparable::{Literal, Param};
-use crate::ir::FilterExpression::{And, BoolParam, Comparison, Not, Or};
+use crate::ir::FilterExpression::{And, ExistenceTest, Comparison, Not, Or};
 use crate::ir::FilterSubquerySegment::{Index, Name};
 use crate::ir::LiteralValue::{Bool, Float, Int, Null};
 
@@ -234,7 +234,7 @@ impl FilterGenerator {
                 }
             }
             rsonpath_syntax::LogicalExpr::Test { .. } => {
-                let param = BoolParam { id: self.subquery_count };
+                let param = ExistenceTest { param_id: self.subquery_count };
                 self.subquery_count += 1;
                 param
             }

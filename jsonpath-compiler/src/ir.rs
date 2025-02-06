@@ -80,7 +80,7 @@ pub enum FilterExpression {
     And { lhs: Box<FilterExpression>, rhs: Box<FilterExpression> },
     Not { expr: Box<FilterExpression> },
     Comparison { lhs: Comparable, rhs: Comparable, op: ComparisonOp },
-    BoolParam { id: usize },
+    ExistenceTest { param_id: usize },
 }
 
 #[derive(Debug)]

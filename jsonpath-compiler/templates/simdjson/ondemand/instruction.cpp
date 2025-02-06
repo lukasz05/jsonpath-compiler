@@ -84,6 +84,7 @@
                         continue;
                     if (current_node.is_member && current_node.key.compare(subquery_segment->name) != 0) {
                         filter_instances[i]->current_subqueries_segments[i] = nullptr;
+                        filter_instances[i]->subqueries_results[i].type = subquery_result::NOTHING;
                         continue;
                     }
                     if (current_node.is_element && current_node.index != subquery_segment->index

@@ -34,57 +34,86 @@ struct subquery_result {
     int64_t int_value;
     double float_value;
     bool bool_value;
-    enum {STRING, INT, FLOAT, BOOL, __NULL} type;
+    enum {STRING, INT, FLOAT, BOOL, __NULL, NOTHING} type;
 
-    auto operator<=>(const subquery_result& other) const
+    partial_ordering operator<=>(const subquery_result& other) const
     {
-        // TODO
-        return strong_ordering::less;
+        if (type == NOTHING && other.type == NOTHING) return partial_ordering::equivalent;
+        if (type == __NULL && other.type == __NULL) return partial_ordering::equivalent;
+        if (other.type == STRING) return *this <=> other.str_value;
+        if (other.type == INT) return *this <=> int_value;
+        if (other.type == FLOAT) return *this <=> float_value;
+        if (other.type == BOOL) return *this <=> bool_value;
+
+        return partial_ordering::unordered;
     }
-    auto operator<=>(const string& other) const
+    partial_ordering operator<=>(const string& other) const
     {
-        // TODO
-        return strong_ordering::less;
+        if (type != STRING)
+            return partial_ordering::unordered;
+
+        const int cmp = str_value.compare(other);
+        if (cmp == 0) return partial_ordering::equivalent;
+        if (cmp < 0) return partial_ordering::less;
+        return partial_ordering::greater;
     }
-    auto operator<=>(const int64_t& other) const
+    partial_ordering operator<=>(const int64_t& other) const
     {
-        // TODO
-        return strong_ordering::less;
+        if (type == INT) {
+            if (int_value == other) return partial_ordering::equivalent;
+            if (int_value < other) return partial_ordering::less;
+            return partial_ordering::greater;
+        }
+
+        if (type == FLOAT) {
+            if (float_value == other) return partial_ordering::equivalent;
+            if (float_value < other) return partial_ordering::less;
+            return partial_ordering::greater;
+        }
+
+        return partial_ordering::unordered;
     }
-    auto operator<=>(const double& other) const
+    partial_ordering operator<=>(const double& other) const
     {
-        // TODO
-        return strong_ordering::less;
+        if (type == INT) {
+            if (int_value == other) return partial_ordering::equivalent;
+            if (int_value < other) return partial_ordering::less;
+            return partial_ordering::greater;
+        }
+
+        if (type == FLOAT) {
+            if (float_value == other) return partial_ordering::equivalent;
+            if (float_value < other) return partial_ordering::less;
+            return partial_ordering::greater;
+        }
+
+        return partial_ordering::unordered;
     }
-    auto operator<=>(const bool& other) const
+    partial_ordering operator<=>(const bool& other) const
     {
-        // TODO
-        return strong_ordering::less;
+        if (type != BOOL) return partial_ordering::unordered;
+
+        return bool_value == other ? partial_ordering::equivalent : partial_ordering::unordered;
     }
     bool operator==(const subquery_result& other) const
     {
-        return false;
+        return *this <=> other == partial_ordering::equivalent;
     }
     bool operator==(const string& other) const
     {
-        return false;
+        return *this <=> other == partial_ordering::equivalent;
     }
-    bool operator==(const int64_t& other)
+    bool operator==(const int64_t& other) const
     {
-        return false;
+        return *this <=> other == partial_ordering::equivalent;
     }
-    bool operator==(const double& other)
+    bool operator==(const double& other) const
     {
-        return false;
+        return *this <=> other == partial_ordering::equivalent;
     }
-    bool operator==(const bool& other)
+    bool operator==(const bool& other) const
     {
-        return false;
-    }
-    operator bool() const
-    {
-        // TODO
-        return false;
+        return *this <=> other == partial_ordering::equivalent;
     }
 };
 
