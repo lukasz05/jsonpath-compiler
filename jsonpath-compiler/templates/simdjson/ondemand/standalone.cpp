@@ -29,12 +29,17 @@ struct subquery_path_segment;
 struct subquery_result;
 struct current_node_data;
 
+enum subquery_result_type
+{
+ NOTHING, STRING, INT, FLOAT, BOOL, __NULL, COMPLEX
+};
+
 struct subquery_result {
-    string str_value;
+    string_view str_value;
     int64_t int_value;
     double float_value;
     bool bool_value;
-    enum {STRING, INT, FLOAT, BOOL, __NULL, NOTHING} type;
+    subquery_result_type type;
 
     partial_ordering operator<=>(const subquery_result& other) const
     {
@@ -47,7 +52,7 @@ struct subquery_result {
 
         return partial_ordering::unordered;
     }
-    partial_ordering operator<=>(const string& other) const
+    partial_ordering operator<=>(const string_view& other) const
     {
         if (type != STRING)
             return partial_ordering::unordered;
@@ -293,10 +298,61 @@ string read_input(const char* filename)
 }
 {% endif %}
 
+
+{% if Self::are_any_filters(self) %}
+void traverse_and_save_selected_nodes(ondemand::value &node, string* result_buf, vector<subquery_result*> &reached_subqueries_results)
+{% else %}
 void traverse_and_save_selected_nodes(ondemand::value &node, string* result_buf)
+{% endif %}
 {
     if (result_buf != nullptr)
         *result_buf += node.raw_json().value();
+
+    {% if Self::are_any_filters(self) %}
+    if (reached_subqueries_results.empty())
+            return;
+
+    string_view str_value;
+    int64_t int_value;
+    double float_value;
+    bool bool_value;
+    subquery_result_type type;
+
+    if (node.is_null())
+        type = __NULL;
+    else if (!node.get_string().get(str_value))
+        type = STRING;
+    else if (!node.get_int64().get(int_value))
+        type = INT;
+    else if (!node.get_double().get(float_value))
+        type = FLOAT;
+    else if (node.get_bool().get(bool_value))
+        type = BOOL;
+
+    for (auto subquery_result : reached_subqueries_results) {
+        subquery_result->type = type;
+        switch (type) {
+            case STRING:
+                subquery_result->str_value = str_value;
+                break;
+
+            case INT:
+                subquery_result->int_value = int_value;
+                break;
+
+            case FLOAT:
+                subquery_result->float_value = float_value;
+                break;
+
+            case BOOL:
+                subquery_result->bool_value = bool_value;
+                break;
+
+            default:
+                break;
+        }
+    }
+    {% endif %}
 }
 
 {% for procedure in procedures %}

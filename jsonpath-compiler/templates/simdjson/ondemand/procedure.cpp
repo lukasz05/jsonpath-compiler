@@ -14,5 +14,9 @@ void {{name|lower}}(ondemand::value &node, string *result_buf, vector<tuple<stri
     {{ EMPTY_ARRAY_ITERATION.render().unwrap() }}
 {% endif %}
     if (node.is_scalar())
+        {% if are_any_filters %}
+        traverse_and_save_selected_nodes(node, result_buf, reached_subqueries_results);
+        {% else %}
         traverse_and_save_selected_nodes(node, result_buf);
+        {% endif %}
 }
