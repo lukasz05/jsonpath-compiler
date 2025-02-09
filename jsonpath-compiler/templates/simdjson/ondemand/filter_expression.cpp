@@ -29,11 +29,11 @@
         {% when Comparable::Param with {id} %} params[{{id}}]
         {% when Comparable::Literal with {value} %}
             {% match value %}
-                {% when LiteralValue::String with (str) %} "{{str}}"
+                {% when LiteralValue::String with (str) %} string_view{"{{ rsonpath_syntax::str::escape(str, rsonpath_syntax::str::EscapeMode::DoubleQuoted) }}"}
                 {% when LiteralValue::Int with (x) %} {{x}}ll
                 {% when LiteralValue::Float with (x) %} {{x}}
                 {% when LiteralValue::Bool with (x) %} {{x}}
-                {% when LiteralValue::Null %} null
+                {% when LiteralValue::Null %} subquery_result {.type = __NULL}
             {% endmatch %}
     {% endmatch %}
 {% endmacro %}

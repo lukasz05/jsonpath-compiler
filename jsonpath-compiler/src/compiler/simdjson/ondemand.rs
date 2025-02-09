@@ -17,6 +17,7 @@ struct ToOnDemandStandaloneTemplate<'a> {
     procedures: Vec<ProcedureTemplate<'a>>,
     filter_procedures: Vec<FilterProcedureTemplate<'a>>,
     filter_subqueries: &'a HashMap<FilterId, Vec<FilterSubquery>>,
+    segments_count: usize
 }
 
 impl ToOnDemandStandaloneTemplate<'_> {
@@ -39,11 +40,18 @@ impl ToOnDemandStandaloneTemplate<'_> {
                 })
                 .collect(),
             filter_subqueries: &query.filter_subqueries,
+            segments_count: query.segments_count
         }
     }
 
     fn are_any_filters(&self) -> bool {
         !self.filter_procedures.is_empty()
+    }
+
+    fn max_subqueries_in_filter_count(&self) -> usize {
+        self.filter_subqueries.values().map(|subqueries| subqueries.len())
+            .max()
+            .unwrap_or(0)
     }
 }
 

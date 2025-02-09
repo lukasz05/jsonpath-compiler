@@ -1,4 +1,4 @@
-bool {{name|lower}}(subquery_result params[])
+bool {{name|lower}}(array<subquery_result, MAX_SUBQUERIES_IN_FILTER> params)
 {
     return {{expression.render().unwrap()}};
 }

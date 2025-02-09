@@ -45,7 +45,8 @@ impl IRGenerator<'_> {
                     }
                 ],
                 filter_procedures: HashMap::new(),
-                filter_subqueries: HashMap::new()
+                filter_subqueries: HashMap::new(),
+                segments_count: 0
             }
         } else {
             let segments_data = first_segment.segments_data();
@@ -65,7 +66,8 @@ impl IRGenerator<'_> {
                 procedures,
                 filter_procedures: self.filter_generator
                     .generate_filter_procedures(self.query_syntax),
-                filter_subqueries: FilterSubqueryFinder::get_all_subqueries(self.query_syntax)
+                filter_subqueries: FilterSubqueryFinder::get_all_subqueries(self.query_syntax),
+                segments_count: self.query_syntax.segments().len()
             }
         }
     }

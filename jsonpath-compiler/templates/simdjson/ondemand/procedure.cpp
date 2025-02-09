@@ -15,7 +15,9 @@ void {{name|lower}}(ondemand::value &node, string *result_buf, vector<tuple<stri
 {% endif %}
     if (node.is_scalar())
         {% if are_any_filters %}
-        traverse_and_save_selected_nodes(node, result_buf, reached_subqueries_results);
+        traverse_and_save_selected_nodes(node, result_buf, filter_instances, reached_subqueries_results, {false, false, 0, 0, {}});
+    for (int i = 0; i < filter_instances.size(); i++)
+        filter_instances[i]->current_subqueries_segments = current_subqueries_segments_copies[i];
         {% else %}
         traverse_and_save_selected_nodes(node, result_buf);
         {% endif %}

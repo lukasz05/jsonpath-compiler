@@ -9,7 +9,8 @@ mod filter_generator;
 pub struct Query {
     pub procedures: Vec<Procedure>,
     pub filter_procedures: HashMap<FilterId, FilterProcedure>,
-    pub filter_subqueries: HashMap<FilterId, Vec<FilterSubquery>>
+    pub filter_subqueries: HashMap<FilterId, Vec<FilterSubquery>>,
+    pub segments_count: usize
 }
 
 #[derive(Debug)]
@@ -35,7 +36,6 @@ pub enum Instruction {
     },
     Continue,
     TraverseCurrentNodeSubtree,
-    //RegisterSubqueryPath { subquery_path: FilterSubqueryPath },
     StartFilterExecution { filter_id: FilterId },
     EndFilterExecution,
     UpdateSubqueriesState,

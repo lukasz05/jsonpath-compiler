@@ -1,3 +1,5 @@
+{%- import "macros.cpp" as scope -%}
+
 {% match instruction %}
     {% when Instruction::ForEachElement with { instructions } %}
         {% call compile_array_iteration(instruction) %}
@@ -62,51 +64,17 @@
         continue;
     {% when Instruction::TraverseCurrentNodeSubtree %}
         {% if are_any_filters %}
-        traverse_and_save_selected_nodes({{current_node}}, result_buf, reached_subqueries_results);
+        traverse_and_save_selected_nodes({{current_node}}, result_buf, filter_instances, reached_subqueries_results, {false, false, 0, 0, {}});
         {% else %}
         traverse_and_save_selected_nodes({{current_node}}, result_buf);
         {% endif %}
     {% when Instruction::StartFilterExecution with { filter_id} %}
-        auto* f_instance_{{filter_id.segment_index}}_{{filter_id.selector_index}} = new filter_instance({{filter_id.segment_index}}, {{filter_id.selector_index}});
-        {% for subquery_index in 0..filter_subqueries.unwrap().get(filter_id).unwrap().len() %}
-            f_instance_{{filter_id.segment_index}}_{{filter_id.selector_index}}->current_subqueries_segments[{{subquery_index}}] =
-                &filter_{{filter_id.segment_index}}_{{filter_id.selector_index}}_subquery_{{subquery_index}}_segment_0;
-            f_instance_{{filter_id.segment_index}}_{{filter_id.selector_index}}->subqueries_results[{{subquery_index}}] = {};
-        {% endfor %}
-        filter_instances.push_back(f_instance_{{filter_id.segment_index}}_{{filter_id.selector_index}});
+        {% call scope::compile_start_filter_execution(filter_id) %}
     {% when Instruction::EndFilterExecution %}
         filter_instances.pop_back();
     {% when Instruction::UpdateSubqueriesState %}
         vector<subquery_result*> reached_subqueries_results;
-        if (current_node.is_member || current_node.is_element) {
-            for (auto f_instance : filter_instances) {
-                for (size_t i = 0; i < MAX_SUBQUERIES_IN_FILTER; i++) {
-                    auto subquery_segment = f_instance->current_subqueries_segments[i];
-                    if (subquery_segment == nullptr)
-                        continue;
-                    if (current_node.is_member && !subquery_segment->is_name)
-                        continue;
-                    if (current_node.is_element && subquery_segment->is_name)
-                        continue;
-                    if (current_node.is_member && current_node.key.compare(subquery_segment->name) != 0) {
-                        filter_instances[i]->current_subqueries_segments[i] = nullptr;
-                        continue;
-                    }
-                    if (current_node.is_element && current_node.index != subquery_segment->index
-                        && (subquery_segment->index >= 0 || subquery_segment->index + current_node.array_length != current_node.index)) {
-                        filter_instances[i]->current_subqueries_segments[i] = nullptr;
-                        continue;
-                    }
-                    if (subquery_segment->next == nullptr) {
-                        if (node.is_scalar())
-                            reached_subqueries_results.push_back(&filter_instances[i]->subqueries_results[i]);
-                        else
-                            filter_instances[i]->subqueries_results[i].type = COMPLEX;
-                    }
-                    filter_instances[i]->current_subqueries_segments[i] = const_cast<subquery_path_segment *>(subquery_segment->next);
-                }
-            }
-        }
+        {% call scope::compile_update_subqueries_state() %}
 {% endmatch %}
 
 {% macro compile_instructions(instructions, current_node) %}

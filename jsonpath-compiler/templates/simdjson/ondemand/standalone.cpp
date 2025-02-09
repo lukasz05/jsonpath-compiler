@@ -1,3 +1,5 @@
+{%- import "macros.cpp" as scope -%}
+
 {% if logging %}
 #define SIMDJSON_VERBOSE_LOGGING 1
 {% endif %}
@@ -19,8 +21,8 @@ using namespace simdjson;
 
 {% if Self::are_any_filters(self) %}
 
-constexpr uint8_t MAX_SUBQUERIES_IN_FILTER = 5; // TODO
-constexpr uint8_t SEGMENT_COUNT = 10; // TODO
+constexpr uint8_t MAX_SUBQUERIES_IN_FILTER = {{Self::max_subqueries_in_filter_count(self)}};
+constexpr uint8_t SEGMENT_COUNT = {{segments_count}};
 
 struct selection_condition;
 struct filter;
@@ -28,6 +30,9 @@ struct filter_instance;
 struct subquery_path_segment;
 struct subquery_result;
 struct current_node_data;
+
+vector<selection_condition*> all_selection_conditions;
+vector<filter_instance*> all_filter_instances;
 
 enum subquery_result_type
 {
@@ -46,9 +51,9 @@ struct subquery_result {
         if (type == NOTHING && other.type == NOTHING) return partial_ordering::equivalent;
         if (type == __NULL && other.type == __NULL) return partial_ordering::equivalent;
         if (other.type == STRING) return *this <=> other.str_value;
-        if (other.type == INT) return *this <=> int_value;
-        if (other.type == FLOAT) return *this <=> float_value;
-        if (other.type == BOOL) return *this <=> bool_value;
+        if (other.type == INT) return *this <=> other.int_value;
+        if (other.type == FLOAT) return *this <=> other.float_value;
+        if (other.type == BOOL) return *this <=> other.bool_value;
 
         return partial_ordering::unordered;
     }
@@ -104,7 +109,7 @@ struct subquery_result {
     {
         return *this <=> other == partial_ordering::equivalent;
     }
-    bool operator==(const string& other) const
+    bool operator==(const string_view& other) const
     {
         return *this <=> other == partial_ordering::equivalent;
     }
@@ -129,23 +134,29 @@ struct selection_condition {
     const filter_instance *filter;
 
     static selection_condition* new_and(const selection_condition *lhs, const selection_condition *rhs) {
-        return new selection_condition {AND, lhs, rhs, nullptr};
+        auto ptr = new selection_condition {AND, lhs, rhs, nullptr};
+        all_selection_conditions.push_back(ptr);
+        return ptr;
     }
 
     static selection_condition* new_or(const selection_condition *lhs, const selection_condition *rhs) {
-        return new selection_condition {OR, lhs, rhs, nullptr};
+        auto ptr = new selection_condition {OR, lhs, rhs, nullptr};
+        all_selection_conditions.push_back(ptr);
+        return ptr;
     }
 
     static selection_condition* new_filter(const filter_instance *filter) {
-        return new selection_condition {FILTER, nullptr, nullptr, filter};
+        auto ptr = new selection_condition {FILTER, nullptr, nullptr, filter};
+        all_selection_conditions.push_back(ptr);
+        return ptr;
     }
 };
 
 struct filter_instance {
-    const uint8_t filter_segment_index;
-    const uint8_t filter_selector_index;
-    subquery_path_segment *current_subqueries_segments[MAX_SUBQUERIES_IN_FILTER];
-    subquery_result subqueries_results[MAX_SUBQUERIES_IN_FILTER];
+    uint8_t filter_segment_index;
+    uint8_t filter_selector_index;
+    array<subquery_path_segment*, MAX_SUBQUERIES_IN_FILTER> current_subqueries_segments;
+    array<subquery_result, MAX_SUBQUERIES_IN_FILTER> subqueries_results;
 };
 
 struct subquery_path_segment {
@@ -183,11 +194,11 @@ struct current_node_data {
 {% endfor %}
 
 {% for filter_procedure in filter_procedures %}
-    bool {{filter_procedure.name|lower}}(subquery_result params[]);
+    bool {{filter_procedure.name|lower}}(array<subquery_result, MAX_SUBQUERIES_IN_FILTER> params);
 {% endfor %}
 
 
-typedef bool(*filter_function_ptr)(subquery_result[]);
+typedef bool (*filter_function_ptr)(array<subquery_result, MAX_SUBQUERIES_IN_FILTER> subquery_result);
 
 filter_function_ptr get_filter_function(uint8_t filter_segment_index, uint8_t filter_selector_index) {
     {% for filter_procedure in filter_procedures %}
@@ -201,13 +212,19 @@ bool evaluate_selection_condition(const selection_condition *condition) {
     if (condition == nullptr) return true;
     switch (condition->type) {
         case selection_condition::AND:
+            if (condition->lhs == nullptr)
+                return evaluate_selection_condition(condition->rhs);
+            if (condition->rhs == nullptr)
+                return evaluate_selection_condition(condition->lhs);
             return evaluate_selection_condition(condition->lhs) && evaluate_selection_condition(condition->rhs);
         case selection_condition::OR:
+            if (condition->lhs == nullptr || condition->rhs == nullptr)
+                return true;
             return evaluate_selection_condition(condition->lhs) || evaluate_selection_condition(condition->rhs);
         case selection_condition::FILTER:
             auto filter_instance = condition->filter;
             auto filter_function = get_filter_function(filter_instance->filter_segment_index, filter_instance->filter_selector_index);
-            return filter_function((subquery_result *)filter_instance->subqueries_results);
+            return filter_function(filter_instance->subqueries_results);
     }
 }
 
@@ -241,7 +258,8 @@ int main(int argc, char **argv)
     {% if Self::are_any_filters(self) %}
     vector<tuple<string *, size_t, size_t, selection_condition*>> all_results;
     vector<filter_instance*> filter_instances;
-    selectors_0(root_node, nullptr, all_results, nullptr, filter_instances, {false, false, 0, 0, {}});
+    selection_condition *segment_conditions[MAX_SUBQUERIES_IN_FILTER] = {};
+    selectors_0(root_node, nullptr, all_results, segment_conditions, filter_instances, {false, false, 0, 0, {}});
     {% else %}
     vector<tuple<string *, size_t, size_t>> all_results;
     selectors_0(root_node, nullptr, all_results);
@@ -273,6 +291,12 @@ int main(int argc, char **argv)
     if (prev_ptr != nullptr)
         delete prev_ptr;
     cout << "]\n";
+    {% if Self::are_any_filters(self) %}
+    for (auto filter_instance : all_filter_instances)
+        delete filter_instance;
+    for (auto selection_condition : all_selection_conditions)
+        delete selection_condition;
+    {% endif %}
     return 0;
 }
 
@@ -300,58 +324,140 @@ string read_input(const char* filename)
 
 
 {% if Self::are_any_filters(self) %}
-void traverse_and_save_selected_nodes(ondemand::value &node, string* result_buf, vector<subquery_result*> &reached_subqueries_results)
+void traverse_and_save_selected_nodes(ondemand::value &node, string *result_buf,
+                                      vector<filter_instance*> &filter_instances,
+                                      vector<subquery_result *> &reached_subqueries_results,
+                                      current_node_data current_node)
 {% else %}
 void traverse_and_save_selected_nodes(ondemand::value &node, string* result_buf)
 {% endif %}
 {
+    {% if Self::are_any_filters(self) %}
+    {% call scope::compile_update_subqueries_state() %}
+
+    if (node.is_scalar()) {
+        if (result_buf != nullptr)
+            *result_buf += node.raw_json().value();
+
+        if (!reached_subqueries_results.empty()) {
+            string_view str_value;
+            int64_t int_value;
+            double float_value;
+            bool bool_value;
+            subquery_result_type type;
+
+            if (node.is_null())
+                type = __NULL;
+            else if (!node.get_string().get(str_value))
+                type = STRING;
+            else if (!node.get_int64().get(int_value))
+                type = INT;
+            else if (!node.get_double().get(float_value))
+                type = FLOAT;
+            else if (!node.get_bool().get(bool_value))
+                type = BOOL;
+
+            while (!reached_subqueries_results.empty())
+            {
+                auto subquery_result = reached_subqueries_results.back();
+                reached_subqueries_results.pop_back();
+                subquery_result->type = type;
+                switch (type)
+                {
+                    case STRING:
+                        subquery_result->str_value = str_value;
+                    break;
+
+                    case INT:
+                        subquery_result->int_value = int_value;
+                    break;
+
+                    case FLOAT:
+                        subquery_result->float_value = float_value;
+                    break;
+
+                    case BOOL:
+                        subquery_result->bool_value = bool_value;
+                    break;
+
+                    default:
+                        break;
+                }
+            }
+        }
+        if (current_node.is_member || current_node.is_element) {
+            for (int i = 0; i < filter_instances.size(); i++)
+                filter_instances[i]->current_subqueries_segments = current_subqueries_segments_copies[i];
+        }
+        return;
+    }
+
+    if (result_buf == nullptr && filter_instances.empty())
+        return;
+
+    if (result_buf != nullptr && filter_instances.empty()) {
+        *result_buf += node.raw_json().value();
+        return;
+    }
+
+    ondemand::object object;
+    if (!node.get_object().get(object)) {
+        if (result_buf != nullptr)
+            *result_buf += "{";
+        bool first = true;
+        for (ondemand::field field : object) {
+            string_view key = field.unescaped_key();
+            if (result_buf != nullptr)
+            {
+                if (!first)
+                    *result_buf += ", ";
+                *result_buf += "\"";
+                *result_buf += key;
+                *result_buf += "\":";
+            }
+            first = false;
+            traverse_and_save_selected_nodes(field.value(), result_buf, filter_instances, reached_subqueries_results,
+                {true, false, 0, 0, key}
+            );
+        }
+        if (result_buf != nullptr)
+            *result_buf += "}";
+    }
+
+    ondemand::array array;
+    if (!node.get_array().get(array)) {
+        if (result_buf != nullptr)
+            *result_buf += "[";
+        bool first = true;
+        size_t index = 0;
+
+        size_t array_length = array.count_elements();
+
+        for (ondemand::value element : array) {
+            if (!first)
+            {
+                index++;
+                if (result_buf != nullptr)
+                    *result_buf += ", ";
+            }
+            first = false;
+
+            traverse_and_save_selected_nodes(element, result_buf, filter_instances, reached_subqueries_results,
+                {false, true, array_length, 0, {}}
+            );
+        }
+        if (result_buf != nullptr)
+            *result_buf += "]";
+    }
+
+    if (current_node.is_member || current_node.is_element) {
+        for (int i = 0; i < filter_instances.size(); i++)
+            filter_instances[i]->current_subqueries_segments = current_subqueries_segments_copies[i];
+    }
+
+    {% else %}
     if (result_buf != nullptr)
         *result_buf += node.raw_json().value();
-
-    {% if Self::are_any_filters(self) %}
-    if (reached_subqueries_results.empty())
-            return;
-
-    string_view str_value;
-    int64_t int_value;
-    double float_value;
-    bool bool_value;
-    subquery_result_type type;
-
-    if (node.is_null())
-        type = __NULL;
-    else if (!node.get_string().get(str_value))
-        type = STRING;
-    else if (!node.get_int64().get(int_value))
-        type = INT;
-    else if (!node.get_double().get(float_value))
-        type = FLOAT;
-    else if (node.get_bool().get(bool_value))
-        type = BOOL;
-
-    for (auto subquery_result : reached_subqueries_results) {
-        subquery_result->type = type;
-        switch (type) {
-            case STRING:
-                subquery_result->str_value = str_value;
-                break;
-
-            case INT:
-                subquery_result->int_value = int_value;
-                break;
-
-            case FLOAT:
-                subquery_result->float_value = float_value;
-                break;
-
-            case BOOL:
-                subquery_result->bool_value = bool_value;
-                break;
-
-            default:
-                break;
-        }
-    }
     {% endif %}
 }
 
