@@ -1,4 +1,4 @@
-{%- import "macros.cpp" as scope -%}
+{%- import "macros.cpp" as common -%}
 
 {% match instruction %}
     {% when Instruction::ForEachElement with { instructions } %}
@@ -22,7 +22,7 @@
         }
     {% when Instruction::ExecuteProcedureOnChild with { conditions, name } %}
         {% if are_any_filters %}
-            selection_condition* new_segment_conditions[SEGMENT_COUNT] = {};
+            selection_condition* new_segment_conditions[{{query_name}}_SEGMENT_COUNT] = {};
             {% for (i, condition) in conditions.iter().enumerate() %}
                 {% if let Some(condition) = condition %}
                     {% let template = SelectionConditionTemplate::new(condition) %}
@@ -31,7 +31,7 @@
                         : selection_condition::new_and(segment_conditions[{{i}}], {{ template.render().unwrap() }});
                 {% endif %}
             {% endfor %}
-            {% if !query_name.is_empty() %}{{query_name}}_{{name|lower}}{% else %}{{name|lower}}{% endif %}({{current_node}}, result_buf, all_results,
+            {{query_name}}_{{name|lower}}({{current_node}}, result_buf, all_results,
             new_segment_conditions, filter_instances,
             {% if current_node == "field.value()" %}
             { true, false, 0, 0, key});
@@ -41,7 +41,7 @@
             { false, false, 0, 0, {}});
             {% endif %}
         {% else %}
-            {% if !query_name.is_empty() %}{{query_name}}_{{name|lower}}{% else %}{{name|lower}}{% endif %}({{current_node}}, result_buf, all_results);
+            {{query_name}}_{{name|lower}}({{current_node}}, result_buf, all_results);
         {% endif %}
     {% when Instruction::SaveCurrentNodeDuringTraversal with { condition, instruction } %}
         if (result_buf == nullptr)
@@ -69,12 +69,12 @@
         traverse_and_save_selected_nodes({{current_node}}, result_buf);
         {% endif %}
     {% when Instruction::StartFilterExecution with { filter_id} %}
-        {% call scope::compile_start_filter_execution(filter_id) %}
+        {% call common::compile_start_filter_execution(filter_id, query_name) %}
     {% when Instruction::EndFilterExecution %}
         filter_instances.pop_back();
     {% when Instruction::UpdateSubqueriesState %}
         vector<subquery_result*> reached_subqueries_results;
-        {% call scope::compile_update_subqueries_state() %}
+        {% call common::compile_update_subqueries_state() %}
 {% endmatch %}
 
 {% macro compile_instructions(instructions, current_node) %}
