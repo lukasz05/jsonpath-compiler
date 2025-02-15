@@ -75,12 +75,6 @@ impl Instruction {
 }
 
 #[derive(Debug)]
-pub struct Name(pub String);
-
-#[derive(Debug)]
-pub struct Index(pub i64);
-
-#[derive(Debug)]
 pub struct FilterProcedure {
     pub name: String,
     pub filter_id: FilterId,
@@ -165,14 +159,6 @@ impl SelectionCondition {
         } else {
             merged
         }
-    }
-
-    fn and(&self, other: &SelectionCondition) -> SelectionCondition {
-        SelectionCondition::And {
-            lhs: Box::new(self.clone()),
-            rhs: Box::new(other.clone()),
-        }
-            .normalize()
     }
 
     fn normalize(&self) -> SelectionCondition {

@@ -1,6 +1,6 @@
 use askama::Template;
 
-use crate::ir::{Instruction, Query};
+use crate::ir::Instruction;
 use crate::ir::Instruction::{
     ForEachElement, ForEachMember, IfCurrentIndexEquals, IfCurrentIndexFromEndEquals,
     IfCurrentMemberNameEquals,
@@ -9,7 +9,6 @@ use crate::ir::Instruction::{
 pub mod dom;
 pub mod ondemand;
 
-type NamedQuery<'a> = (&'a str, &'a Query);
 
 #[derive(Template)]
 #[template(path = "simdjson/bindings.rs", escape = "none")]

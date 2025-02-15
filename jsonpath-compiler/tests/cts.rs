@@ -575,12 +575,12 @@ fn filter_equals_number_negative_exponent() {
 }
 
 #[test]
-fn filter_equals_number_exponent_0() {
+fn filter_equals_number_exponent_1() {
     TestHelper::new(r#"$[?@.a==1e0]"#, r#"[{"a": 1, "d": "e"}, {"a": 2, "d": "f"}, {"a": "1", "d": "g"}]"#, r#"[{"a": 1, "d": "e"}]"#).run()
 }
 
 #[test]
-fn filter_equals_number_exponent__0() {
+fn filter_equals_number_exponent_2() {
     TestHelper::new(r#"$[?@.a==1e-0]"#, r#"[{"a": 1, "d": "e"}, {"a": 2, "d": "f"}, {"a": "1", "d": "g"}]"#, r#"[{"a": 1, "d": "e"}]"#).run()
 }
 
@@ -590,7 +590,7 @@ fn filter_equals_number_exponent_plus0() {
 }
 
 #[test]
-fn filter_equals_number_exponent_leading__0() {
+fn filter_equals_number_exponent_leading_0() {
     TestHelper::new(r#"$[?@.a==1e-02]"#, r#"[{"a": 0.01, "d": "e"}, {"a": 0.02, "d": "f"}, {"a": "0.01", "d": "g"}]"#, r#"[{"a": 0.01, "d": "e"}]"#).run()
 }
 
@@ -747,12 +747,12 @@ fn name_selector_double_quotes_array_data() {
 }
 
 #[test]
-fn name_selector_double_quotes_embedded_Uplus0020() {
+fn name_selector_double_quotes_embedded_uplus0020() {
     TestHelper::new(r#"$[" "]"#, r#"{" ": "A"}"#, r#"["A"]"#).run()
 }
 
 #[test]
-fn name_selector_double_quotes_embedded_uplus007F() {
+fn name_selector_double_quotes_embedded_uplus007f() {
     TestHelper::new(r#"$[""]"#, r#"{"": "A"}"#, r#"["A"]"#).run()
 }
 
@@ -817,7 +817,7 @@ fn name_selector_double_quotes_surrogate_pair_u0001d11e() {
 }
 
 #[test]
-fn name_selector_double_quotes_surrogate_pair_U0001f600() {
+fn name_selector_double_quotes_surrogate_pair_u0001f600() {
     TestHelper::new(r#"$["\uD83D\uDE00"]"#, r#"{"😀": "A"}"#, r#"["A"]"#).run()
 }
 
@@ -847,7 +847,7 @@ fn name_selector_single_quotes_array_data() {
 }
 
 #[test]
-fn name_selector_single_quotes_embedded_Uplus0020() {
+fn name_selector_single_quotes_embedded_uplus0020() {
     TestHelper::new(r#"$[' ']"#, r#"{" ": "A"}"#, r#"["A"]"#).run()
 }
 
@@ -902,12 +902,12 @@ fn name_selector_single_quotes_escaped_u263a_lower_case_hex() {
 }
 
 #[test]
-fn name_selector_single_quotes_surrogate_pair_U0001d11e() {
+fn name_selector_single_quotes_surrogate_pair_u0001d11e() {
     TestHelper::new(r#"$['\uD834\uDD1E']"#, r#"{"𝄞": "A"}"#, r#"["A"]"#).run()
 }
 
 #[test]
-fn name_selector_single_quotes_surrogate_pair_U0001f600() {
+fn name_selector_single_quotes_surrogate_pair_u0001f600() {
     TestHelper::new(r#"$['\uD83D\uDE00']"#, r#"{"😀": "A"}"#, r#"["A"]"#).run()
 }
 

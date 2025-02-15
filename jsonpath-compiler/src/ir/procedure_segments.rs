@@ -3,7 +3,7 @@ use std::hash::Hash;
 
 use itertools::Itertools;
 
-use crate::ir::{FilterId, SegmentIndex};
+use crate::ir::{SegmentIndex};
 
 #[derive(Eq, PartialEq, Hash, Clone)]
 pub struct ProcedureSegmentsData {
@@ -225,23 +225,6 @@ impl ProcedureSegments<'_> {
         }
         map.into_iter()
             .map(|(key, segments)| (key, ProcedureSegments::new(self.query, segments)))
-            .collect()
-    }
-
-    fn filter_selectors(&self) -> Vec<FilterId> {
-        self.segments()
-            .into_iter()
-            .flat_map(|segment_id| {
-                self.query.segments()[segment_id]
-                    .selectors()
-                    .into_iter()
-                    .enumerate()
-                    .map(move |(index, selector)| ((segment_id, index), selector))
-            })
-            .filter(|(_, selector)| selector.is_filter())
-            .map(|((segment_index, selector_index), _)| {
-                FilterId::new(segment_index, selector_index)
-            })
             .collect()
     }
 }

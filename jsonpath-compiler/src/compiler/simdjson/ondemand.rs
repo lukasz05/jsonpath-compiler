@@ -181,7 +181,6 @@ struct ProcedureTemplate<'a> {
     query_name: String,
     name: String,
     instructions: Vec<InstructionTemplate<'a>>,
-    filter_subqueries: &'a HashMap<FilterId, Vec<FilterSubquery>>,
     are_any_filters: bool,
 }
 
@@ -208,7 +207,6 @@ impl ProcedureTemplate<'_> {
                     )
                 })
                 .collect(),
-            filter_subqueries,
             are_any_filters,
         }
     }
@@ -259,7 +257,6 @@ impl InstructionTemplate<'_> {
 struct FilterProcedureTemplate<'a> {
     name: String,
     filter_id: FilterId,
-    arity: usize,
     expression: FilterExpressionTemplate<'a>,
     query_name: &'a str,
 }
@@ -272,7 +269,6 @@ impl FilterProcedureTemplate<'_> {
         FilterProcedureTemplate {
             name: filter_procedure.name.clone(),
             filter_id: filter_procedure.filter_id.clone(),
-            arity: filter_procedure.arity,
             expression: FilterExpressionTemplate::new(&filter_procedure.expression),
             query_name,
         }
