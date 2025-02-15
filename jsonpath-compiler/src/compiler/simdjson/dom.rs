@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::string::ToString;
+
 use askama::Template;
 use clang_format::{clang_format_with_style, ClangFormatStyle};
 
@@ -21,7 +22,9 @@ impl ToDomStandaloneTemplate<'_> {
         ToDomStandaloneTemplate {
             logging,
             mmap,
-            procedures: query.procedures.iter()
+            procedures: query
+                .procedures
+                .iter()
                 .map(|procedure| ProcedureTemplate::new(procedure))
                 .collect(),
         }
@@ -43,7 +46,7 @@ impl ToDomLibTemplate<'_> {
         queries: Vec<NamedQuery<'a>>,
         logging: bool,
         bindings: bool,
-        filename: &'a str
+        filename: &'a str,
     ) -> ToDomLibTemplate<'a> {
         let mut procedures = Vec::new();
         let mut query_names = HashSet::new();
@@ -58,12 +61,10 @@ impl ToDomLibTemplate<'_> {
             bindings,
             filename,
             procedures,
-            query_names: query_names.into_iter().collect()
+            query_names: query_names.into_iter().collect(),
         }
     }
 }
-
-
 
 #[derive(Template)]
 #[template(path = "simdjson/dom/procedure.cpp", escape = "none")]
@@ -76,52 +77,60 @@ impl ProcedureTemplate<'_> {
     fn new(procedure: &Procedure) -> ProcedureTemplate {
         ProcedureTemplate {
             name: procedure.name.clone(),
-            instructions: procedure.instructions.iter()
+            instructions: procedure
+                .instructions
+                .iter()
                 .map(|instruction| InstructionTemplate::new(instruction, "node", ""))
                 .collect(),
         }
     }
 
-    fn new_with_query_name<'a>(procedure: &'a Procedure, query_name: &'a str) -> ProcedureTemplate<'a> {
+    fn new_with_query_name<'a>(
+        procedure: &'a Procedure,
+        query_name: &'a str,
+    ) -> ProcedureTemplate<'a> {
         let procedure_name = format!("{}_{}", query_name, procedure.name);
         ProcedureTemplate {
             name: procedure_name,
-            instructions: procedure.instructions.iter()
+            instructions: procedure
+                .instructions
+                .iter()
                 .map(|instruction| InstructionTemplate::new(instruction, "node", query_name))
                 .collect(),
         }
     }
 
-    fn are_object_members_iterated(&self) -> bool
-    {
-        self.instructions.iter().any(|ins| ins.instruction.is_object_member_iteration())
+    fn are_object_members_iterated(&self) -> bool {
+        self.instructions
+            .iter()
+            .any(|ins| ins.instruction.is_object_member_iteration())
     }
 
-    fn are_array_elements_iterated(&self) -> bool
-    {
-        self.instructions.iter().any(|ins| ins.instruction.is_array_element_iteration())
+    fn are_array_elements_iterated(&self) -> bool {
+        self.instructions
+            .iter()
+            .any(|ins| ins.instruction.is_array_element_iteration())
     }
 }
-
 
 #[derive(Template)]
 #[template(path = "simdjson/dom/instruction.cpp", escape = "none")]
 struct InstructionTemplate<'a> {
     instruction: &'a Instruction,
     current_node: &'a str,
-    query_name: &'a str
+    query_name: &'a str,
 }
 
 impl InstructionTemplate<'_> {
     fn new<'a>(
         instruction: &'a Instruction,
         current_node: &'a str,
-        query_name: &'a str
+        query_name: &'a str,
     ) -> InstructionTemplate<'a> {
         InstructionTemplate {
             instruction,
             current_node,
-            query_name
+            query_name,
         }
     }
 }
@@ -132,23 +141,18 @@ pub struct ToDomCompiler<'a> {
     logging: bool,
     bindings: bool,
     mmap: bool,
-    filename: Option<String>
+    filename: Option<String>,
 }
 
-
 impl ToDomCompiler<'_> {
-    pub fn new_standalone(
-        query: NamedQuery,
-        logging: bool,
-        mmap: bool,
-    ) -> ToDomCompiler {
+    pub fn new_standalone(query: NamedQuery, logging: bool, mmap: bool) -> ToDomCompiler {
         ToDomCompiler {
             queries: vec![query],
             standalone: true,
             logging,
             bindings: false,
             mmap,
-            filename: None
+            filename: None,
         }
     }
 
@@ -171,30 +175,33 @@ impl ToDomCompiler<'_> {
     pub fn compile(self) -> String {
         let code: String;
         if self.standalone {
-            let template = ToDomStandaloneTemplate::new(
-                self.queries[0].1,
-                self.logging,
-                self.mmap,
-            );
+            let template = ToDomStandaloneTemplate::new(self.queries[0].1, self.logging, self.mmap);
             code = template.render().unwrap();
         } else {
-            let filename = if self.filename.is_some() { self.filename.unwrap() } else {
+            let filename = if self.filename.is_some() {
+                self.filename.unwrap()
+            } else {
                 String::from("query.hpp")
             };
-            let template = ToDomLibTemplate::new(
-                self.queries,
-                self.logging,
-                self.bindings,
-                &filename,
-            );
+            let template =
+                ToDomLibTemplate::new(self.queries, self.logging, self.bindings, &filename);
             code = template.render().unwrap();
         }
         clang_format_with_style(&code, &ClangFormatStyle::Microsoft).unwrap()
     }
 }
 
-static EMPTY_OBJECT_ITERATION: InstructionTemplate =
-    InstructionTemplate { instruction: &ForEachMember { instructions: vec![] }, current_node: "node", query_name: ""};
-static EMPTY_ARRAY_ITERATION: InstructionTemplate =
-    InstructionTemplate { instruction: &ForEachElement { instructions: vec![] }, current_node: "node", query_name: ""};
-
+static EMPTY_OBJECT_ITERATION: InstructionTemplate = InstructionTemplate {
+    instruction: &ForEachMember {
+        instructions: vec![],
+    },
+    current_node: "node",
+    query_name: "",
+};
+static EMPTY_ARRAY_ITERATION: InstructionTemplate = InstructionTemplate {
+    instruction: &ForEachElement {
+        instructions: vec![],
+    },
+    current_node: "node",
+    query_name: "",
+};

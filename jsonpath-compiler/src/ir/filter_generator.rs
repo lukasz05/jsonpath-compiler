@@ -4,9 +4,12 @@ use itertools::chain;
 use rsonpath_syntax::Comparable::{AbsoluteSingularQuery, RelativeSingularQuery};
 use rsonpath_syntax::TestExpr::{Absolute, Relative};
 
-use crate::ir::{Comparable, ComparisonOp, FilterExpression, FilterId, FilterProcedure, FilterSubquery, LiteralValue, SegmentIndex};
+use crate::ir::{
+    Comparable, ComparisonOp, FilterExpression, FilterId, FilterProcedure, FilterSubquery,
+    LiteralValue, SegmentIndex,
+};
 use crate::ir::Comparable::{Literal, Param};
-use crate::ir::FilterExpression::{And, ExistenceTest, Comparison, Not, Or};
+use crate::ir::FilterExpression::{And, Comparison, ExistenceTest, Not, Or};
 use crate::ir::FilterSubquerySegment::{Index, Name};
 use crate::ir::LiteralValue::{Bool, Float, Int, Null};
 
@@ -14,7 +17,7 @@ pub struct FilterUtils {}
 
 impl FilterUtils {
     pub fn get_all_filters(
-        query_syntax: &rsonpath_syntax::JsonPathQuery
+        query_syntax: &rsonpath_syntax::JsonPathQuery,
     ) -> Vec<(&rsonpath_syntax::LogicalExpr, FilterId)> {
         let mut filters = Vec::new();
         for i in 0..query_syntax.segments().len() {
@@ -31,7 +34,13 @@ impl FilterUtils {
         let selectors = query_syntax.segments()[segment_index].selectors();
         for (selector_index, selector) in selectors.iter().enumerate() {
             if let rsonpath_syntax::Selector::Filter(filter_expression) = selector {
-                filters.push((filter_expression, FilterId { segment_index, selector_index }));
+                filters.push((
+                    filter_expression,
+                    FilterId {
+                        segment_index,
+                        selector_index,
+                    },
+                ));
             }
         }
         filters
@@ -39,7 +48,6 @@ impl FilterUtils {
 }
 
 pub struct FilterSubqueryFinder {}
-
 
 impl FilterSubqueryFinder {
     pub fn get_all_subqueries(
@@ -52,7 +60,9 @@ impl FilterSubqueryFinder {
         result
     }
 
-    pub fn get_subqueries_in_filter(filter_expr: &rsonpath_syntax::LogicalExpr) -> Vec<FilterSubquery> {
+    pub fn get_subqueries_in_filter(
+        filter_expr: &rsonpath_syntax::LogicalExpr,
+    ) -> Vec<FilterSubquery> {
         Self::get_all_subqueries_paths_in_expr(filter_expr)
     }
 
@@ -61,38 +71,29 @@ impl FilterSubqueryFinder {
         //filter_id: &FilterId,
     ) -> Vec<FilterSubquery> {
         match filter_expr {
-            rsonpath_syntax::LogicalExpr::Or(lhs, rhs) => {
-                chain![
-                    Self::get_all_subqueries_paths_in_expr(lhs),
-                    Self::get_all_subqueries_paths_in_expr(rhs)
-                ].collect()
-            }
-            rsonpath_syntax::LogicalExpr::And(lhs, rhs) => {
-                chain![
-                    Self::get_all_subqueries_paths_in_expr(lhs),
-                    Self::get_all_subqueries_paths_in_expr(rhs)
-                ].collect()
-            }
-            rsonpath_syntax::LogicalExpr::Not(expr) => {
-                Self::get_all_subqueries_paths_in_expr(expr)
-            }
-            rsonpath_syntax::LogicalExpr::Comparison(comparison_expr) => {
-                vec![
-                    Self::get_subquery_from_comparable(comparison_expr.lhs()),
-                    Self::get_subquery_from_comparable(comparison_expr.rhs()),
-                ].into_iter()
-                    .filter(|subquery| subquery.is_some())
-                    .map(|subquery| subquery.unwrap())
-                    .collect()
-            }
+            rsonpath_syntax::LogicalExpr::Or(lhs, rhs) => chain![
+                Self::get_all_subqueries_paths_in_expr(lhs),
+                Self::get_all_subqueries_paths_in_expr(rhs)
+            ]
+                .collect(),
+            rsonpath_syntax::LogicalExpr::And(lhs, rhs) => chain![
+                Self::get_all_subqueries_paths_in_expr(lhs),
+                Self::get_all_subqueries_paths_in_expr(rhs)
+            ]
+                .collect(),
+            rsonpath_syntax::LogicalExpr::Not(expr) => Self::get_all_subqueries_paths_in_expr(expr),
+            rsonpath_syntax::LogicalExpr::Comparison(comparison_expr) => vec![
+                Self::get_subquery_from_comparable(comparison_expr.lhs()),
+                Self::get_subquery_from_comparable(comparison_expr.rhs()),
+            ]
+                .into_iter()
+                .filter(|subquery| subquery.is_some())
+                .map(|subquery| subquery.unwrap())
+                .collect(),
             rsonpath_syntax::LogicalExpr::Test(test_expr) => {
                 let subquery = match test_expr {
-                    Relative(subquery) => {
-                        Self::convert_subquery(subquery, false)
-                    }
-                    Absolute(subquery) => {
-                        Self::convert_subquery(subquery, true)
-                    }
+                    Relative(subquery) => Self::convert_subquery(subquery, false),
+                    Absolute(subquery) => Self::convert_subquery(subquery, true),
                 };
                 vec![subquery]
             }
@@ -109,12 +110,15 @@ impl FilterSubqueryFinder {
             AbsoluteSingularQuery(subquery) => {
                 Some(Self::convert_singular_subquery(subquery, true))
             }
-            _ => return None
+            _ => return None,
         };
         subquery
     }
 
-    fn convert_subquery(subquery: &rsonpath_syntax::JsonPathQuery, is_absolute: bool) -> FilterSubquery {
+    fn convert_subquery(
+        subquery: &rsonpath_syntax::JsonPathQuery,
+        is_absolute: bool,
+    ) -> FilterSubquery {
         let mut result = FilterSubquery {
             is_absolute,
             segments: Vec::new(),
@@ -134,7 +138,7 @@ impl FilterSubqueryFinder {
                             rsonpath_syntax::Index::FromEnd(index) => -(index.as_u64() as i64),
                         }));
                     }
-                    _ => panic!()
+                    _ => panic!(),
                 }
             }
         }
@@ -172,9 +176,7 @@ pub struct FilterGenerator {
 
 impl FilterGenerator {
     pub fn new() -> FilterGenerator {
-        FilterGenerator {
-            subquery_count: 0
-        }
+        FilterGenerator { subquery_count: 0 }
     }
 
     pub fn generate_filter_procedures(
@@ -211,30 +213,26 @@ impl FilterGenerator {
         filter_expr: &rsonpath_syntax::LogicalExpr,
     ) -> FilterExpression {
         match filter_expr {
-            rsonpath_syntax::LogicalExpr::Or(lhs, rhs) => {
-                Or {
-                    lhs: Box::new(self.generate_filter_expr(lhs)),
-                    rhs: Box::new(self.generate_filter_expr(rhs)),
-                }
-            }
-            rsonpath_syntax::LogicalExpr::And(lhs, rhs) => {
-                And {
-                    lhs: Box::new(self.generate_filter_expr(lhs)),
-                    rhs: Box::new(self.generate_filter_expr(rhs)),
-                }
-            }
-            rsonpath_syntax::LogicalExpr::Not(expr) => {
-                Not { expr: Box::new(self.generate_filter_expr(expr)) }
-            }
-            rsonpath_syntax::LogicalExpr::Comparison(comparison_expr) => {
-                Comparison {
-                    lhs: self.generate_comparable(comparison_expr.lhs()),
-                    rhs: self.generate_comparable(comparison_expr.rhs()),
-                    op: self.generate_comparison_op(comparison_expr.op()),
-                }
-            }
+            rsonpath_syntax::LogicalExpr::Or(lhs, rhs) => Or {
+                lhs: Box::new(self.generate_filter_expr(lhs)),
+                rhs: Box::new(self.generate_filter_expr(rhs)),
+            },
+            rsonpath_syntax::LogicalExpr::And(lhs, rhs) => And {
+                lhs: Box::new(self.generate_filter_expr(lhs)),
+                rhs: Box::new(self.generate_filter_expr(rhs)),
+            },
+            rsonpath_syntax::LogicalExpr::Not(expr) => Not {
+                expr: Box::new(self.generate_filter_expr(expr)),
+            },
+            rsonpath_syntax::LogicalExpr::Comparison(comparison_expr) => Comparison {
+                lhs: self.generate_comparable(comparison_expr.lhs()),
+                rhs: self.generate_comparable(comparison_expr.rhs()),
+                op: self.generate_comparison_op(comparison_expr.op()),
+            },
             rsonpath_syntax::LogicalExpr::Test { .. } => {
-                let param = ExistenceTest { param_id: self.subquery_count };
+                let param = ExistenceTest {
+                    param_id: self.subquery_count,
+                };
                 self.subquery_count += 1;
                 param
             }
@@ -243,11 +241,13 @@ impl FilterGenerator {
 
     fn generate_comparable(&mut self, comparable: &rsonpath_syntax::Comparable) -> Comparable {
         match comparable {
-            rsonpath_syntax::Comparable::Literal(literal) => {
-                Literal { value: self.generate_literal(literal) }
-            }
+            rsonpath_syntax::Comparable::Literal(literal) => Literal {
+                value: self.generate_literal(literal),
+            },
             AbsoluteSingularQuery { .. } | RelativeSingularQuery { .. } => {
-                let param = Param { id: self.subquery_count };
+                let param = Param {
+                    id: self.subquery_count,
+                };
                 self.subquery_count += 1;
                 param
             }
@@ -259,18 +259,12 @@ impl FilterGenerator {
             rsonpath_syntax::Literal::String(json_str) => {
                 LiteralValue::String(json_str.unquoted().to_string())
             }
-            rsonpath_syntax::Literal::Number(json_num) => {
-                match json_num {
-                    rsonpath_syntax::num::JsonNumber::Int(json_int) => {
-                        Int(json_int.as_i64())
-                    }
-                    rsonpath_syntax::num::JsonNumber::Float(json_float) => {
-                        Float(json_float.as_f64())
-                    }
-                }
-            }
+            rsonpath_syntax::Literal::Number(json_num) => match json_num {
+                rsonpath_syntax::num::JsonNumber::Int(json_int) => Int(json_int.as_i64()),
+                rsonpath_syntax::num::JsonNumber::Float(json_float) => Float(json_float.as_f64()),
+            },
             rsonpath_syntax::Literal::Bool(bool_value) => Bool(*bool_value),
-            rsonpath_syntax::Literal::Null => Null
+            rsonpath_syntax::Literal::Null => Null,
         }
     }
 
@@ -284,7 +278,7 @@ impl FilterGenerator {
             rsonpath_syntax::ComparisonOp::LesserOrEqualTo => ComparisonOp::LessOrEqualTo,
             rsonpath_syntax::ComparisonOp::GreaterOrEqualTo => ComparisonOp::GreaterOrEqualTo,
             rsonpath_syntax::ComparisonOp::LessThan => ComparisonOp::LessThan,
-            rsonpath_syntax::ComparisonOp::GreaterThan => ComparisonOp::GreaterThan
+            rsonpath_syntax::ComparisonOp::GreaterThan => ComparisonOp::GreaterThan,
         }
     }
 }

@@ -1,6 +1,10 @@
 use askama::Template;
+
 use crate::ir::{Instruction, Query};
-use crate::ir::Instruction::{ForEachElement, ForEachMember, IfCurrentIndexEquals, IfCurrentIndexFromEndEquals, IfCurrentMemberNameEquals};
+use crate::ir::Instruction::{
+    ForEachElement, ForEachMember, IfCurrentIndexEquals, IfCurrentIndexFromEndEquals,
+    IfCurrentMemberNameEquals,
+};
 
 pub mod dom;
 pub mod ondemand;
@@ -15,9 +19,7 @@ struct RustBindingsTemplate {
 
 impl RustBindingsTemplate {
     pub fn new(query_names: Vec<String>) -> RustBindingsTemplate {
-        RustBindingsTemplate {
-            query_names
-        }
+        RustBindingsTemplate { query_names }
     }
 }
 
@@ -40,19 +42,17 @@ fn is_array_length_needed(instructions: &Vec<Instruction>) -> bool {
     for instruction in instructions {
         let is_needed = match instruction {
             IfCurrentIndexFromEndEquals { .. } => true,
-            IfCurrentIndexEquals { index: _index, instructions } => {
-                is_array_length_needed(instructions)
-            }
-            IfCurrentMemberNameEquals { name: _name, instructions } => {
-                is_array_length_needed(instructions)
-            }
-            ForEachMember { instructions } => {
-                is_array_length_needed(instructions)
-            }
-            ForEachElement { instructions } => {
-                is_array_length_needed(instructions)
-            }
-            _ => false
+            IfCurrentIndexEquals {
+                index: _index,
+                instructions,
+            } => is_array_length_needed(instructions),
+            IfCurrentMemberNameEquals {
+                name: _name,
+                instructions,
+            } => is_array_length_needed(instructions),
+            ForEachMember { instructions } => is_array_length_needed(instructions),
+            ForEachElement { instructions } => is_array_length_needed(instructions),
+            _ => false,
         };
         if is_needed {
             return true;
