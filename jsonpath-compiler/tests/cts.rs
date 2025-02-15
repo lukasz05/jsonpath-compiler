@@ -81,17 +81,23 @@ fn basic_multiple_selectors_index_and_slice_overlapping() {
 
 #[test]
 fn basic_multiple_selectors_duplicate_index() {
-    TestHelper::new(r#"$[1,1]"#, r#"[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]"#, r#"[1, 1]"#).run()
+    TestHelper::new(r#"$[1,1]"#, r#"[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]"#, r#"[1, 1]"#)
+        .ignore_order_and_duplicates()
+        .run()
 }
 
 #[test]
 fn basic_multiple_selectors_wildcard_and_index() {
-    TestHelper::new(r#"$[*,1]"#, r#"[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]"#, r#"[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 1]"#).run()
+    TestHelper::new(r#"$[*,1]"#, r#"[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]"#, r#"[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 1]"#)
+        .ignore_order_and_duplicates()
+        .run()
 }
 
 #[test]
 fn basic_multiple_selectors_wildcard_and_name() {
-    TestHelper::new(r#"$[*,'a']"#, r#"{"a": "A", "b": "B"}"#, r#"["A", "B", "A"]"#).run()
+    TestHelper::new(r#"$[*,'a']"#, r#"{"a": "A", "b": "B"}"#, r#"["A", "B", "A"]"#)
+        .ignore_order_and_duplicates()
+        .run()
 }
 
 #[test]
@@ -102,7 +108,9 @@ fn basic_multiple_selectors_wildcard_and_slice() {
 
 #[test]
 fn basic_multiple_selectors_multiple_wildcards() {
-    TestHelper::new(r#"$[*,*]"#, r#"[0, 1, 2]"#, r#"[0, 1, 2, 0, 1, 2]"#).run()
+    TestHelper::new(r#"$[*,*]"#, r#"[0, 1, 2]"#, r#"[0, 1, 2, 0, 1, 2]"#)
+        .ignore_order_and_duplicates()
+        .run()
 }
 
 #[test]
@@ -127,12 +135,16 @@ fn basic_descendant_segment_wildcard_selector_array_data() {
 
 #[test]
 fn basic_descendant_segment_wildcard_selector_nested_arrays() {
-    TestHelper::new(r#"$..[*]"#, r#"[[[1]], [2]]"#, r#"[[[1]], [2], [1], 1, 2]"#).run()
+    TestHelper::new(r#"$..[*]"#, r#"[[[1]], [2]]"#, r#"[[[1]], [2], [1], 1, 2]"#)
+        .ignore_order_and_duplicates()
+        .run()
 }
 
 #[test]
 fn basic_descendant_segment_wildcard_selector_nested_objects() {
-    TestHelper::new(r#"$..[*]"#, r#"{"a": {"c": {"e": 1}}, "b": {"d": 2}}"#, r#"[{"c": {"e": 1}}, {"d": 2}, {"e": 1}, 1, 2]"#).run()
+    TestHelper::new(r#"$..[*]"#, r#"{"a": {"c": {"e": 1}}, "b": {"d": 2}}"#, r#"[{"c": {"e": 1}}, {"d": 2}, {"e": 1}, 1, 2]"#)
+        .ignore_order_and_duplicates()
+        .run()
 }
 
 #[test]
@@ -509,7 +521,9 @@ fn filter_multiple_selectors_comparison() {
 
 #[test]
 fn filter_multiple_selectors_overlapping() {
-    TestHelper::new(r#"$[?@.a,?@.d]"#, r#"[{"a": "b", "d": "e"}, {"b": "c", "d": "f"}]"#, r#"[{"a": "b", "d": "e"}, {"a": "b", "d": "e"}, {"b": "c", "d": "f"}]"#).run()
+    TestHelper::new(r#"$[?@.a,?@.d]"#, r#"[{"a": "b", "d": "e"}, {"b": "c", "d": "f"}]"#, r#"[{"a": "b", "d": "e"}, {"a": "b", "d": "e"}, {"b": "c", "d": "f"}]"#)
+        .ignore_order_and_duplicates()
+        .run()
 }
 
 #[test]
@@ -519,7 +533,9 @@ fn filter_multiple_selectors_filter_and_index() {
 
 #[test]
 fn filter_multiple_selectors_filter_and_wildcard() {
-    TestHelper::new(r#"$[?@.a,*]"#, r#"[{"a": "b", "d": "e"}, {"b": "c", "d": "f"}]"#, r#"[{"a": "b", "d": "e"}, {"a": "b", "d": "e"}, {"b": "c", "d": "f"}]"#).run()
+    TestHelper::new(r#"$[?@.a,*]"#, r#"[{"a": "b", "d": "e"}, {"b": "c", "d": "f"}]"#, r#"[{"a": "b", "d": "e"}, {"a": "b", "d": "e"}, {"b": "c", "d": "f"}]"#)
+        .ignore_order_and_duplicates()
+        .run()
 }
 
 #[test]

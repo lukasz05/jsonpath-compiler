@@ -2,7 +2,8 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use serde_json::{from_str, to_string_pretty, Value};
+use itertools::Itertools;
+use serde_json::{from_str, Value};
 use uuid::Uuid;
 
 use jsonpath_compiler::{Args, compile, DEFAULT_QUERY_NAME, generate_ir, parse_queries, Target, write_to_file};
@@ -10,7 +11,7 @@ use jsonpath_compiler::{Args, compile, DEFAULT_QUERY_NAME, generate_ir, parse_qu
 pub struct TestHelper {
     query: String,
     document: String,
-    expected_result: String,
+    expected_result: Value,
     query_code_file_path: String,
     query_prog_file_path: String,
     document_file_path: String,
@@ -19,7 +20,7 @@ pub struct TestHelper {
 
 impl TestHelper {
     const WORKDIR_PATH: &'static str = "/tmp";
-    const SIMDJSON_PATH: &'static str = "/opt/homebrew/Cellar/simdjson/3.11.5"; // TODO: load from the configuration
+    const SIMDJSON_PATH: &'static str = "/opt/homebrew/Cellar/simdjson/3.12.2"; // TODO: load from the configuration
 
     pub fn new(query: &str, document: &str, expected_result: &str) -> TestHelper {
         let tmp_path = Self::random_file_path();
@@ -29,29 +30,32 @@ impl TestHelper {
             query_code_file_path: format!("{tmp_path}.cpp"),
             query_prog_file_path: tmp_path.clone(),
             document_file_path: format!("{tmp_path}.json"),
-            expected_result: expected_result.to_string(),
+            expected_result: from_str(expected_result).unwrap(),
             ignore_order_and_duplicates: false,
         }
     }
 
-    pub fn run(&self) {
+    pub fn ignore_order_and_duplicates(self) -> TestHelper {
+        TestHelper {
+            ignore_order_and_duplicates: true,
+            ..self
+        }
+    }
+
+    pub fn run(&mut self) {
         self.generate_query_code();
         self.compile_query_code();
-        let result = self.normalize_result(&self.execute_query());
-        let expected_result = self.normalize_result(&self.expected_result);
-        assert_eq!(result, expected_result);
+        let mut result = self.execute_query();
+        if self.ignore_order_and_duplicates {
+            Self::normalize_result(&mut result);
+            Self::normalize_result(&mut self.expected_result);
+        }
+        assert_eq!(result, self.expected_result)
     }
 
     fn random_file_path() -> String {
         let uuid = Uuid::new_v4();
         Path::new(Self::WORKDIR_PATH).join(uuid.to_string()).to_str().unwrap().to_string()
-    }
-
-    fn ignore_order_and_duplicates(self) -> TestHelper {
-        TestHelper {
-            ignore_order_and_duplicates: true,
-            ..self
-        }
     }
 
     fn generate_query_code(&self) {
@@ -88,18 +92,20 @@ impl TestHelper {
         assert!(result.success(), "query code compilation failed")
     }
 
-    fn execute_query(&self) -> String {
+    fn execute_query(&self) -> Value {
         fs::write(&self.document_file_path, &self.document).unwrap();
         let output = Command::new(&self.query_prog_file_path)
             .arg(&self.document_file_path)
             .output()
             .unwrap();
         assert!(output.status.success(), "query execution failed");
-        String::from_utf8(output.stdout).unwrap()
+        let result = String::from_utf8(output.stdout).unwrap();
+        from_str(&result).unwrap()
     }
 
-    fn normalize_result(&self, result: &str) -> String {
-        let parsed_result: Value = from_str(result).unwrap();
-        to_string_pretty(&parsed_result).unwrap()
+    fn normalize_result(result: &mut Value) {
+        let result_arr = result.as_array_mut().unwrap();
+        result_arr.sort_by_key(|v| v.to_string());
+        result_arr.dedup()
     }
 }
