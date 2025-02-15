@@ -1,8 +1,7 @@
-use std::fs;
+use std::{env, fs};
 use std::path::Path;
 use std::process::Command;
 
-use itertools::Itertools;
 use serde_json::{from_str, Value};
 use uuid::Uuid;
 
@@ -12,6 +11,7 @@ pub struct TestHelper {
     query: String,
     document: String,
     expected_result: Value,
+    simdjson_path: String,
     query_code_file_path: String,
     query_prog_file_path: String,
     document_file_path: String,
@@ -20,13 +20,13 @@ pub struct TestHelper {
 
 impl TestHelper {
     const WORKDIR_PATH: &'static str = "/tmp";
-    const SIMDJSON_PATH: &'static str = "/opt/homebrew/Cellar/simdjson/3.12.2"; // TODO: load from the configuration
 
     pub fn new(query: &str, document: &str, expected_result: &str) -> TestHelper {
         let tmp_path = Self::random_file_path();
         TestHelper {
             query: query.to_string(),
             document: document.to_string(),
+            simdjson_path: env::var("SIMDJSON_PATH").unwrap(),
             query_code_file_path: format!("{tmp_path}.cpp"),
             query_prog_file_path: tmp_path.clone(),
             document_file_path: format!("{tmp_path}.json"),
@@ -83,8 +83,8 @@ impl TestHelper {
             .arg(&self.query_code_file_path)
             .arg("-std=c++20")
             .arg("-O3")
-            .arg(format!("-I{}/include", Self::SIMDJSON_PATH))
-            .arg(format!("-L{}/lib", Self::SIMDJSON_PATH))
+            .arg(format!("-I{}/include", self.simdjson_path))
+            .arg(format!("-L{}/lib", self.simdjson_path))
             .arg("-lsimdjson")
             .arg("-o").arg(&self.query_prog_file_path)
             .status()
