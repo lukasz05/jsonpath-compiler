@@ -65,7 +65,7 @@
         {
             bool first = true;
             size_t index = 0;
-            {% if crate::compiler::simdjson::is_array_length_needed(instructions) %}
+            {% if crate::targets::simdjson::is_array_length_needed(instructions) %}
             size_t array_length = array.size();
             {% endif %}
             for (dom::element element : array)

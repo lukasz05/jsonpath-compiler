@@ -1,3 +1,5 @@
+use std::fs;
+
 use askama::Template;
 
 use crate::ir::Instruction;
@@ -5,6 +7,8 @@ use crate::ir::Instruction::{
     ForEachElement, ForEachMember, IfCurrentIndexEquals, IfCurrentIndexFromEndEquals,
     IfCurrentMemberNameEquals,
 };
+use crate::NamedQuery;
+use crate::targets::BindingsGenerator;
 
 pub mod dom;
 pub mod ondemand;
@@ -23,17 +27,24 @@ impl RustBindingsTemplate {
 }
 
 pub struct RustBindingsGenerator {
-    query_names: Vec<String>,
+    bindings_file_path: String,
 }
 
 impl RustBindingsGenerator {
-    pub fn new(query_names: Vec<String>) -> RustBindingsGenerator {
-        RustBindingsGenerator { query_names }
+    pub fn new(bindings_file_path: &str) -> RustBindingsGenerator {
+        RustBindingsGenerator {
+            bindings_file_path: bindings_file_path.to_string()
+        }
     }
+}
 
-    pub fn generate(self) -> String {
-        let template = RustBindingsTemplate::new(self.query_names);
-        template.render().unwrap()
+impl BindingsGenerator for RustBindingsGenerator {
+    fn generate(&self, named_queries: &Vec<NamedQuery>) -> Result<(), std::io::Error> {
+        let query_names = named_queries.iter().map(|(name, _)| name.to_string()).collect();
+        let template = RustBindingsTemplate::new(query_names);
+        let bindings = template.render().unwrap();
+        fs::write(&self.bindings_file_path, bindings)?;
+        Ok(())
     }
 }
 

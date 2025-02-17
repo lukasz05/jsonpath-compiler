@@ -5,12 +5,16 @@ use std::process::Command;
 use serde_json::{from_str, Value};
 use uuid::Uuid;
 
-use jsonpath_compiler::{Args, compile, DEFAULT_QUERY_NAME, generate_ir, parse_queries, Target, write_to_file};
+use jsonpath_compiler::compiler::StandaloneProgGeneratingCompiler;
+use jsonpath_compiler::Target;
+use jsonpath_compiler::targets::simdjson::dom::DomCodeStandaloneProgGenerator;
+use jsonpath_compiler::targets::simdjson::ondemand::OnDemandCodeStandaloneProgGenerator;
 
 pub struct TestHelper {
     query: String,
     document: String,
     expected_result: Value,
+    target: Target,
     simdjson_path: String,
     query_code_file_path: String,
     query_prog_file_path: String,
@@ -21,7 +25,7 @@ pub struct TestHelper {
 impl TestHelper {
     const WORKDIR_PATH: &'static str = "/tmp";
 
-    pub fn new(query: &str, document: &str, expected_result: &str) -> TestHelper {
+    pub fn new(query: &str, document: &str, expected_result: &str, target: Target) -> TestHelper {
         let tmp_path = Self::random_file_path();
         TestHelper {
             query: query.to_string(),
@@ -32,6 +36,7 @@ impl TestHelper {
             document_file_path: format!("{tmp_path}.json"),
             expected_result: from_str(expected_result).unwrap(),
             ignore_order_and_duplicates: false,
+            target,
         }
     }
 
@@ -59,23 +64,21 @@ impl TestHelper {
     }
 
     fn generate_query_code(&self) {
-        let parse_result = parse_queries(&vec![
-            (DEFAULT_QUERY_NAME.to_string(), self.query.to_string())
-        ]);
-        let parsed_queries = parse_result.unwrap();
-        let query_irs = generate_ir(&parsed_queries, None).unwrap();
-        let code = compile(&query_irs, &Args {
-            standalone: true,
-            target: Target::SimdjsonOndemand,
-            input: self.query.to_string(),
-            output: Some(self.query_code_file_path.to_string()),
-            from_file: false,
-            ir_output: None,
-            mmap: false,
-            logging: false,
-            rust_bindings: None,
-        });
-        write_to_file(&self.query_code_file_path, code).unwrap()
+        let compiler = StandaloneProgGeneratingCompiler::new();
+        match self.target {
+            Target::SimdjsonOndemand => {
+                compiler.compile::<OnDemandCodeStandaloneProgGenerator>(
+                    &self.query,
+                    &self.query_code_file_path,
+                )
+            }
+            Target::SimdjsonDom => {
+                compiler.compile::<DomCodeStandaloneProgGenerator>(
+                    &self.query,
+                    &self.query_code_file_path,
+                )
+            }
+        }.unwrap();
     }
 
     fn compile_query_code(&self) {

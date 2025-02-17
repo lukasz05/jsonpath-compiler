@@ -6,20 +6,20 @@ use clang_format::{clang_format_with_style, ClangFormatStyle};
 
 use crate::ir::{Instruction, Procedure, Query};
 use crate::ir::Instruction::{ForEachElement, ForEachMember};
-
-type NamedQuery<'a> = (&'a str, &'a Query);
+use crate::NamedQuery;
+use crate::targets::{TargetCodeGenerator, TargetCodeGeneratorBase, TargetCodeLibGenerator, TargetCodeLibGeneratorBase, TargetCodeStandaloneProgGenerator, TargetCodeStandaloneProgGeneratorBase};
 
 #[derive(Template)]
 #[template(path = "simdjson/dom/standalone.cpp", escape = "none")]
-struct ToDomStandaloneTemplate<'a> {
+struct DomStandaloneProgTemplate<'a> {
     logging: bool,
     mmap: bool,
     procedures: Vec<ProcedureTemplate<'a>>,
 }
 
-impl ToDomStandaloneTemplate<'_> {
-    fn new(query: &Query, logging: bool, mmap: bool) -> ToDomStandaloneTemplate {
-        ToDomStandaloneTemplate {
+impl DomStandaloneProgTemplate<'_> {
+    fn new(query: &Query, logging: bool, mmap: bool) -> DomStandaloneProgTemplate {
+        DomStandaloneProgTemplate {
             logging,
             mmap,
             procedures: query
@@ -33,7 +33,7 @@ impl ToDomStandaloneTemplate<'_> {
 
 #[derive(Template)]
 #[template(path = "simdjson/dom/lib.cpp", escape = "none")]
-struct ToDomLibTemplate<'a> {
+struct DomLibTemplate<'a> {
     filename: &'a str,
     logging: bool,
     bindings: bool,
@@ -41,13 +41,13 @@ struct ToDomLibTemplate<'a> {
     query_names: Vec<String>,
 }
 
-impl ToDomLibTemplate<'_> {
+impl DomLibTemplate<'_> {
     fn new<'a>(
-        queries: Vec<NamedQuery<'a>>,
+        queries: &'a Vec<NamedQuery>,
         logging: bool,
         bindings: bool,
         filename: &'a str,
-    ) -> ToDomLibTemplate<'a> {
+    ) -> DomLibTemplate<'a> {
         let mut procedures = Vec::new();
         let mut query_names = HashSet::new();
         for (name, query) in queries {
@@ -56,7 +56,7 @@ impl ToDomLibTemplate<'_> {
                 query_names.insert(name.to_string());
             }
         }
-        ToDomLibTemplate {
+        DomLibTemplate {
             logging,
             bindings,
             filename,
@@ -135,59 +135,78 @@ impl InstructionTemplate<'_> {
     }
 }
 
-pub struct ToDomCompiler<'a> {
-    queries: Vec<NamedQuery<'a>>,
-    standalone: bool,
-    logging: bool,
-    bindings: bool,
-    mmap: bool,
-    filename: Option<String>,
+pub struct DomCodeStandaloneProgGenerator {
+    base: TargetCodeStandaloneProgGeneratorBase,
 }
 
-impl ToDomCompiler<'_> {
-    pub fn new_standalone(query: NamedQuery, logging: bool, mmap: bool) -> ToDomCompiler {
-        ToDomCompiler {
-            queries: vec![query],
-            standalone: true,
-            logging,
-            bindings: false,
-            mmap,
-            filename: None,
+impl TargetCodeGenerator for DomCodeStandaloneProgGenerator {
+    fn base(&self) -> &TargetCodeGeneratorBase {
+        &self.base.base
+    }
+
+    fn generate(&self) -> String {
+        let template = DomStandaloneProgTemplate::new(
+            self.query(),
+            self.logging(),
+            self.mmap(),
+        );
+        let code = template.render().unwrap();
+        clang_format_with_style(&code, &ClangFormatStyle::Microsoft).unwrap()
+    }
+}
+
+impl TargetCodeStandaloneProgGenerator for DomCodeStandaloneProgGenerator {
+    fn new(query: Query, logging: bool, mmap: bool) -> impl TargetCodeStandaloneProgGenerator {
+        DomCodeStandaloneProgGenerator {
+            base: TargetCodeStandaloneProgGeneratorBase::new(query, logging, mmap)
         }
     }
 
-    pub fn new_lib(
-        queries: Vec<NamedQuery>,
+    fn base(&self) -> &TargetCodeStandaloneProgGeneratorBase {
+        &self.base
+    }
+}
+
+pub struct DomCodeLibGenerator {
+    base: TargetCodeLibGeneratorBase,
+}
+
+impl TargetCodeGenerator for DomCodeLibGenerator {
+    fn base(&self) -> &TargetCodeGeneratorBase {
+        &self.base.base
+    }
+
+    fn generate(&self) -> String {
+        let template = DomLibTemplate::new(
+            self.queries(),
+            self.logging(),
+            self.bindings(),
+            self.filename(),
+        );
+        let code = template.render().unwrap();
+        clang_format_with_style(&code, &ClangFormatStyle::Microsoft).unwrap()
+    }
+}
+
+impl TargetCodeLibGenerator for DomCodeLibGenerator {
+    fn new(
+        named_queries: Vec<NamedQuery>,
+        filename: String,
         logging: bool,
         bindings: bool,
-        filename: Option<String>,
-    ) -> ToDomCompiler {
-        ToDomCompiler {
-            queries,
-            standalone: false,
-            logging,
-            bindings,
-            mmap: false,
-            filename,
+    ) -> impl TargetCodeLibGenerator {
+        DomCodeLibGenerator {
+            base: TargetCodeLibGeneratorBase::new(
+                named_queries,
+                filename,
+                logging,
+                bindings,
+            )
         }
     }
 
-    pub fn compile(self) -> String {
-        let code: String;
-        if self.standalone {
-            let template = ToDomStandaloneTemplate::new(self.queries[0].1, self.logging, self.mmap);
-            code = template.render().unwrap();
-        } else {
-            let filename = if self.filename.is_some() {
-                self.filename.unwrap()
-            } else {
-                String::from("query.hpp")
-            };
-            let template =
-                ToDomLibTemplate::new(self.queries, self.logging, self.bindings, &filename);
-            code = template.render().unwrap();
-        }
-        clang_format_with_style(&code, &ClangFormatStyle::Microsoft).unwrap()
+    fn base(&self) -> &TargetCodeLibGeneratorBase {
+        &self.base
     }
 }
 

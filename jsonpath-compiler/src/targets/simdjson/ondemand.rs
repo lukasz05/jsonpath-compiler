@@ -9,12 +9,13 @@ use crate::ir::{
     Instruction, LiteralValue, Procedure, Query, SelectionCondition,
 };
 use crate::ir::Instruction::{ForEachElement, ForEachMember};
-
-type NamedQuery<'a> = (&'a str, &'a Query);
+use crate::targets::{NamedQuery, TargetCodeGenerator, TargetCodeGeneratorBase,
+                     TargetCodeLibGenerator, TargetCodeLibGeneratorBase,
+                     TargetCodeStandaloneProgGenerator, TargetCodeStandaloneProgGeneratorBase};
 
 #[derive(Template)]
 #[template(path = "simdjson/ondemand/standalone.cpp", escape = "none")]
-struct ToOnDemandStandaloneTemplate<'a> {
+struct OnDemandStandaloneProgTemplate<'a> {
     logging: bool,
     mmap: bool,
     procedures: Vec<ProcedureTemplate<'a>>,
@@ -23,9 +24,9 @@ struct ToOnDemandStandaloneTemplate<'a> {
     segments_count: usize,
 }
 
-impl ToOnDemandStandaloneTemplate<'_> {
-    fn new(query: &Query, logging: bool, mmap: bool) -> ToOnDemandStandaloneTemplate {
-        ToOnDemandStandaloneTemplate {
+impl OnDemandStandaloneProgTemplate<'_> {
+    fn new(query: &Query, logging: bool, mmap: bool) -> OnDemandStandaloneProgTemplate {
+        OnDemandStandaloneProgTemplate {
             logging,
             mmap,
             procedures: query
@@ -65,7 +66,7 @@ impl ToOnDemandStandaloneTemplate<'_> {
 
 #[derive(Template)]
 #[template(path = "simdjson/ondemand/lib.cpp", escape = "none")]
-struct ToOnDemandLibTemplate<'a> {
+struct OnDemandLibTemplate<'a> {
     filename: &'a str,
     logging: bool,
     bindings: bool,
@@ -75,13 +76,13 @@ struct ToOnDemandLibTemplate<'a> {
     query_segments_counts: HashMap<String, usize>,
 }
 
-impl ToOnDemandLibTemplate<'_> {
+impl OnDemandLibTemplate<'_> {
     fn new<'a>(
-        queries: Vec<NamedQuery<'a>>,
+        queries: &'a Vec<NamedQuery>,
         logging: bool,
         bindings: bool,
         filename: &'a str,
-    ) -> ToOnDemandLibTemplate<'a> {
+    ) -> OnDemandLibTemplate<'a> {
         let mut procedures = HashMap::new();
         for (name, query) in queries.iter() {
             procedures.insert(
@@ -100,7 +101,7 @@ impl ToOnDemandLibTemplate<'_> {
                     .collect::<Vec<ProcedureTemplate>>(),
             );
         }
-        ToOnDemandLibTemplate {
+        OnDemandLibTemplate {
             logging,
             bindings,
             filename,
@@ -132,10 +133,6 @@ impl ToOnDemandLibTemplate<'_> {
     fn query_names(&self) -> Vec<&String> {
         self.procedures.keys().collect()
     }
-
-    // fn query_with_filter_names(&self) -> Vec<&String> {
-    //     self.filter_procedures.keys().collect()
-    // }
 
     fn all_procedures(&self) -> Vec<&ProcedureTemplate> {
         self.procedures.values().flatten().collect()
@@ -299,60 +296,79 @@ impl SelectionConditionTemplate<'_> {
     }
 }
 
-pub struct ToOnDemandCompiler<'a> {
-    queries: Vec<NamedQuery<'a>>,
-    standalone: bool,
-    logging: bool,
-    bindings: bool,
-    mmap: bool,
-    filename: Option<String>,
+pub struct OnDemandCodeStandaloneProgGenerator {
+    base: TargetCodeStandaloneProgGeneratorBase,
 }
 
-impl ToOnDemandCompiler<'_> {
-    pub fn new_standalone(query: NamedQuery, logging: bool, mmap: bool) -> ToOnDemandCompiler {
-        ToOnDemandCompiler {
-            queries: vec![query],
-            standalone: true,
-            logging,
-            bindings: false,
-            mmap,
-            filename: None,
+impl TargetCodeGenerator for OnDemandCodeStandaloneProgGenerator {
+    fn base(&self) -> &TargetCodeGeneratorBase {
+        &self.base.base
+    }
+
+    fn generate(&self) -> String {
+        let template = OnDemandStandaloneProgTemplate::new(
+            self.query(),
+            self.logging(),
+            self.mmap(),
+        );
+        let code = template.render().unwrap();
+        //clang_format_with_style(&code, &ClangFormatStyle::Microsoft).unwrap()
+        code
+    }
+}
+
+impl TargetCodeStandaloneProgGenerator for OnDemandCodeStandaloneProgGenerator {
+    fn new(query: Query, logging: bool, mmap: bool) -> impl TargetCodeStandaloneProgGenerator {
+        OnDemandCodeStandaloneProgGenerator {
+            base: TargetCodeStandaloneProgGeneratorBase::new(query, logging, mmap)
         }
     }
 
-    pub fn new_lib(
-        queries: Vec<NamedQuery>,
+    fn base(&self) -> &TargetCodeStandaloneProgGeneratorBase {
+        &self.base
+    }
+}
+
+pub struct OnDemandCodeLibGenerator {
+    base: TargetCodeLibGeneratorBase,
+}
+
+impl TargetCodeGenerator for OnDemandCodeLibGenerator {
+    fn base(&self) -> &TargetCodeGeneratorBase {
+        &self.base.base
+    }
+
+    fn generate(&self) -> String {
+        let template = OnDemandLibTemplate::new(
+            self.queries(),
+            self.logging(),
+            self.bindings(),
+            self.filename(),
+        );
+        let code = template.render().unwrap();
+        clang_format_with_style(&code, &ClangFormatStyle::Microsoft).unwrap()
+    }
+}
+
+impl TargetCodeLibGenerator for OnDemandCodeLibGenerator {
+    fn new(
+        named_queries: Vec<NamedQuery>,
+        filename: String,
         logging: bool,
         bindings: bool,
-        filename: Option<String>,
-    ) -> ToOnDemandCompiler {
-        ToOnDemandCompiler {
-            queries,
-            standalone: false,
-            logging,
-            bindings,
-            mmap: false,
-            filename,
+    ) -> impl TargetCodeLibGenerator {
+        OnDemandCodeLibGenerator {
+            base: TargetCodeLibGeneratorBase::new(
+                named_queries,
+                filename,
+                logging,
+                bindings,
+            )
         }
     }
 
-    pub fn compile(self) -> String {
-        let code: String;
-        if self.standalone {
-            let template =
-                ToOnDemandStandaloneTemplate::new(self.queries[0].1, self.logging, self.mmap);
-            code = template.render().unwrap();
-        } else {
-            let filename = if self.filename.is_some() {
-                self.filename.unwrap()
-            } else {
-                String::from("query.hpp")
-            };
-            let template =
-                ToOnDemandLibTemplate::new(self.queries, self.logging, self.bindings, &filename);
-            code = template.render().unwrap();
-        }
-        clang_format_with_style(&code, &ClangFormatStyle::Microsoft).unwrap()
+    fn base(&self) -> &TargetCodeLibGeneratorBase {
+        &self.base
     }
 }
 

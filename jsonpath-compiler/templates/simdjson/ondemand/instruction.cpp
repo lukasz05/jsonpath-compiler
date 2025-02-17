@@ -121,7 +121,7 @@
                 *result_buf += "[";
             bool first = true;
             size_t index = 0;
-            {% if are_any_filters || crate::compiler::simdjson::is_array_length_needed(instructions) %}
+            {% if are_any_filters || crate::targets::simdjson::is_array_length_needed(instructions) %}
             size_t array_length = array.count_elements();
             {% endif %}
             for (ondemand::value element : array)
