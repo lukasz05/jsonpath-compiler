@@ -189,10 +189,14 @@ impl IRGenerator<'_> {
         );
         let non_filter_selection_condition = Self::get_selection_condition(final_segments);
         if non_filter_selection_condition.is_some() {
-            SelectionCondition::merge(vec![
-                filter_selection_condition,
-                non_filter_selection_condition,
-            ])
+            if filter_selection_condition.is_some() {
+                SelectionCondition::merge(vec![
+                    filter_selection_condition,
+                    non_filter_selection_condition,
+                ])
+            } else {
+                non_filter_selection_condition
+            }
         } else {
             filter_selection_condition
         }

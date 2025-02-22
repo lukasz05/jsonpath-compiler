@@ -53,6 +53,9 @@ fn main() -> Result<ExitCode, CompilationError> {
         if args.mmap {
             compiler = compiler.with_mmap();
         }
+        if let Some(ir_output_file_path) = args.ir_output {
+            compiler = compiler.write_ir_to_file(&ir_output_file_path);
+        }
         match args.target {
             Target::SimdjsonOndemand => {
                 compiler.compile::<OnDemandCodeStandaloneProgGenerator>(input, &args.output)

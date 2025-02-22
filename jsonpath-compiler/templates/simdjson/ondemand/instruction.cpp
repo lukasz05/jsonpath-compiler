@@ -29,6 +29,8 @@
                     new_segment_conditions[{{i}}] = segment_conditions[{{i}}] == nullptr
                         ? {{ template.render().unwrap() }}
                         : selection_condition::new_and(segment_conditions[{{i}}], {{ template.render().unwrap() }});
+                {% else %}
+                    new_segment_conditions[{{i}}] = segment_conditions[{{i}}];
                 {% endif %}
             {% endfor %}
             {{query_name}}_{{name|lower}}({{current_node}}, result_buf, all_results,
@@ -64,7 +66,14 @@
         continue;
     {% when Instruction::TraverseCurrentNodeSubtree %}
         {% if are_any_filters %}
-        traverse_and_save_selected_nodes({{current_node}}, result_buf, filter_instances, reached_subqueries_results, {false, false, 0, 0, {}});
+        traverse_and_save_selected_nodes({{current_node}}, result_buf, filter_instances, reached_subqueries_results,
+        {% if current_node == "field.value()" %}
+        { true, false, 0, 0, key});
+        {% else if current_node == "element" %}
+        { false, true, array_length, index, {}});
+        {% else %}
+        { false, false, 0, 0, {}});
+        {% endif %}
         {% else %}
         traverse_and_save_selected_nodes({{current_node}}, result_buf);
         {% endif %}

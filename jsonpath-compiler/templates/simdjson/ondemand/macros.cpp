@@ -130,10 +130,16 @@ struct selection_condition {
 };
 
 struct filter_instance {
+    bool is_active;
     uint8_t filter_segment_index;
     uint8_t filter_selector_index;
-    array<subquery_path_segment*, MAX_SUBQUERIES_IN_FILTER> current_subqueries_segments;
+    array<subquery_path_segment *, MAX_SUBQUERIES_IN_FILTER> current_subqueries_segments;
     array<subquery_result, MAX_SUBQUERIES_IN_FILTER> subqueries_results;
+
+    filter_instance(uint8_t segment_index, uint8_t selector_index)
+        : filter_segment_index(segment_index), filter_selector_index(selector_index)
+    {
+    }
 };
 
 struct subquery_path_segment {
@@ -339,7 +345,7 @@ void traverse_and_save_selected_nodes(ondemand::value &node, string *result_buf,
             first = false;
 
             traverse_and_save_selected_nodes(element, result_buf, filter_instances, reached_subqueries_results,
-                {false, true, array_length, 0, {}}
+                {false, true, array_length, index, {}}
             );
         }
         if (result_buf != nullptr)
@@ -377,14 +383,22 @@ current_subqueries_segments_copies.reserve(filter_instances.size());
 if (current_node.is_member || current_node.is_element) {
     for (auto f_instance : filter_instances) {
         current_subqueries_segments_copies.push_back(f_instance->current_subqueries_segments);
+        if (!f_instance->is_active) {
+            f_instance->is_active = true;
+            continue;;
+        }
         for (size_t i = 0; i < MAX_SUBQUERIES_IN_FILTER; i++) {
             auto subquery_segment = f_instance->current_subqueries_segments[i];
             if (subquery_segment == nullptr)
                 continue;
-            if (current_node.is_member && !subquery_segment->is_name)
+            if (current_node.is_member && !subquery_segment->is_name) {
+                f_instance->current_subqueries_segments[i] = nullptr;
                 continue;
-            if (current_node.is_element && subquery_segment->is_name)
+            }
+            if (current_node.is_element && subquery_segment->is_name) {
+                f_instance->current_subqueries_segments[i] = nullptr;
                 continue;
+            }
             if (current_node.is_member && current_node.key.compare(subquery_segment->name) != 0) {
                 f_instance->current_subqueries_segments[i] = nullptr;
                 continue;

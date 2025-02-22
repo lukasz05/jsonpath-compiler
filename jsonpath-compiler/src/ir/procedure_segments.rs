@@ -173,10 +173,10 @@ impl ProcedureSegments<'_> {
         if max_descendant_segment.is_none() {
             ProcedureSegments::new(self.query, segments.iter().map(|i| *i).collect())
         } else {
-            // TODO: is this allowed with filters
             let max_descendant_segment = *max_descendant_segment.unwrap();
             let segments = segments.iter().filter(|i| {
                 **i == max_descendant_segment || !self.query.segments()[**i].is_descendant()
+                    || self.query.segments()[**i].selectors().iter().any(|sel| sel.is_filter())
             });
             ProcedureSegments::new(self.query, segments.map(|i| *i).collect())
         }

@@ -31,7 +31,7 @@
             {% match value %}
                 {% when LiteralValue::String with (str) %} string_view{"{{ rsonpath_syntax::str::escape(str, rsonpath_syntax::str::EscapeMode::DoubleQuoted) }}"}
                 {% when LiteralValue::Int with (x) %} {{x}}ll
-                {% when LiteralValue::Float with (x) %} {{x}}
+                {% when LiteralValue::Float with (x) %} {{format!("{:e}", x)}}
                 {% when LiteralValue::Bool with (x) %} {{x}}
                 {% when LiteralValue::Null %} subquery_result {.type = __NULL}
             {% endmatch %}

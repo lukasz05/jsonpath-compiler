@@ -55,7 +55,7 @@ string {{query_name}}(const char* padded_input, size_t length)
     {% if Self::are_any_filters_in_query(self, query_name) %}
     vector<tuple<string *, size_t, size_t, selection_condition*>> all_results;
     vector<filter_instance*> filter_instances;
-    selection_condition *segment_conditions[MAX_SUBQUERIES_IN_FILTER] = {};
+    selection_condition *segment_conditions[{{query_name}}_SEGMENT_COUNT] = {};
     {{query_name}}_selectors_0(root_node, nullptr, all_results, segment_conditions, filter_instances, {false, false, 0, 0, {}});
     {% else %}
     vector<tuple<string *, size_t, size_t>> all_results;

@@ -35,6 +35,19 @@ impl CompilerHelper {
         ir_generator.generate()
     }
 
+    fn generate_query_ir_output(query_ir: &Query) -> String {
+        format!("{:#?}\n", query_ir)
+    }
+
+    fn generate_queries_irs_output(queries_irs: &Vec<NamedQuery>) -> String {
+        let mut output = String::new();
+        for (name, query_ir) in queries_irs {
+            output.push_str(&format!("{name}:\n"));
+            output.push_str(&Self::generate_query_ir_output(query_ir));
+        }
+        output
+    }
+
     fn write_to_file(file_path: &str, content: String) -> Result<(), CompilationError> {
         let file_path = PathBuf::from(file_path);
         if let Some(p) = file_path.parent() {
@@ -47,6 +60,7 @@ impl CompilerHelper {
 pub struct StandaloneProgGeneratingCompiler {
     logging: bool,
     mmap: bool,
+    ir_output_file_path: Option<String>
 }
 
 impl StandaloneProgGeneratingCompiler {
@@ -54,6 +68,7 @@ impl StandaloneProgGeneratingCompiler {
         StandaloneProgGeneratingCompiler {
             logging: false,
             mmap: false,
+            ir_output_file_path: None
         }
     }
 
@@ -71,6 +86,13 @@ impl StandaloneProgGeneratingCompiler {
         }
     }
 
+    pub fn write_ir_to_file(self, file_path: &str) -> StandaloneProgGeneratingCompiler {
+        StandaloneProgGeneratingCompiler {
+            ir_output_file_path: Some(file_path.to_string()),
+            ..self
+        }
+    }
+
     pub fn compile<T: TargetCodeStandaloneProgGenerator>(
         self,
         query: &str,
@@ -78,10 +100,14 @@ impl StandaloneProgGeneratingCompiler {
     ) -> Result<(), CompilationError> {
         let parsed_query = CompilerHelper::parse(query)?;
         let query_ir = CompilerHelper::generate_ir(&parsed_query);
+        if let Some(ir_output_file_path) = self.ir_output_file_path {
+            let ir_output = CompilerHelper::generate_query_ir_output(&query_ir);
+            CompilerHelper::write_to_file(&ir_output_file_path, ir_output)?;
+        }
         let target_code_generator = T::new(
             query_ir,
             self.logging,
-            self.mmap,
+            self.mmap
         );
         let target_code = target_code_generator.generate();
         CompilerHelper::write_to_file(output_file_path, target_code)
@@ -137,7 +163,7 @@ impl LibGeneratingCompiler {
         let parsed_queries = Self::parse_queries(&queries)?;
         let queries_irs = Self::generate_ir(&parsed_queries);
         if let Some(ir_output_file_path) = self.ir_output_file_path {
-            let ir_output = Self::generate_ir_output(&queries_irs);
+            let ir_output = CompilerHelper::generate_queries_irs_output(&queries_irs);
             CompilerHelper::write_to_file(&ir_output_file_path, ir_output)?;
         }
         let filename = Path::new(output_file_path).file_name().unwrap().to_str().unwrap()
@@ -196,15 +222,6 @@ impl LibGeneratingCompiler {
         queries.iter()
             .map(|(name, query)| (name.to_string(), CompilerHelper::generate_ir(query)))
             .collect()
-    }
-
-    fn generate_ir_output(queries_irs: &Vec<NamedQuery>) -> String {
-        let mut output = String::new();
-        for (name, query_ir) in queries_irs {
-            output.push_str(&format!("{name}:\n"));
-            output.push_str(&format!("{:#?}\n", query_ir));
-        }
-        output
     }
 }
 
