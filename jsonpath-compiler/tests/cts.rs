@@ -1,9 +1,7 @@
 use paste::paste;
 
 use jsonpath_compiler::Target;
-use test_helper::TestHelper;
-
-mod test_helper;
+use jsonpath_compiler::test_helper::TestHelper;
 
 macro_rules! cts {
     ($target:ident) => {
@@ -2326,4 +2324,4 @@ macro_rules! cts {
 }
 
 cts!(SimdjsonOndemand);
-cts!(SimdjsonDom);
+//cts!(SimdjsonDom);

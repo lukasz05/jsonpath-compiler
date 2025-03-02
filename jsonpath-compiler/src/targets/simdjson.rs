@@ -3,10 +3,7 @@ use std::fs;
 use askama::Template;
 
 use crate::ir::Instruction;
-use crate::ir::Instruction::{
-    ForEachElement, ForEachMember, IfCurrentIndexEquals, IfCurrentIndexFromEndEquals,
-    IfCurrentMemberNameEquals,
-};
+use crate::ir::Instruction::{ForEachElement, ForEachMember, IfActiveFilterInstance, IfCurrentIndexEquals, IfCurrentIndexFromEndEquals, IfCurrentMemberNameEquals};
 use crate::NamedQuery;
 use crate::targets::BindingsGenerator;
 
@@ -59,6 +56,9 @@ fn is_array_length_needed(instructions: &Vec<Instruction>) -> bool {
             IfCurrentMemberNameEquals {
                 name: _name,
                 instructions,
+            } => is_array_length_needed(instructions),
+            IfActiveFilterInstance {
+                instructions
             } => is_array_length_needed(instructions),
             ForEachMember { instructions } => is_array_length_needed(instructions),
             ForEachElement { instructions } => is_array_length_needed(instructions),

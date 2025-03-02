@@ -149,7 +149,7 @@ impl OnDemandLibTemplate<'_> {
     fn max_subqueries_in_filter_count(&self) -> usize {
         self.filter_subqueries
             .values()
-            .map(|v| v.values())
+            .flat_map(|v| v.values())
             .map(|subqueries| subqueries.len())
             .max()
             .unwrap_or(0)

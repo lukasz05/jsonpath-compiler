@@ -5,10 +5,10 @@ use std::process::Command;
 use serde_json::{from_str, Value};
 use uuid::Uuid;
 
-use jsonpath_compiler::compiler::StandaloneProgGeneratingCompiler;
-use jsonpath_compiler::Target;
-use jsonpath_compiler::targets::simdjson::dom::DomCodeStandaloneProgGenerator;
-use jsonpath_compiler::targets::simdjson::ondemand::OnDemandCodeStandaloneProgGenerator;
+use crate::compiler::StandaloneProgGeneratingCompiler;
+use crate::Target;
+use crate::targets::simdjson::dom::DomCodeStandaloneProgGenerator;
+use crate::targets::simdjson::ondemand::OnDemandCodeStandaloneProgGenerator;
 
 pub struct TestHelper {
     query: String,

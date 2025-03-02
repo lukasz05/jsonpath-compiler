@@ -4,12 +4,7 @@ use itertools::Itertools;
 
 use crate::ir::{Instruction, Procedure, Query, SelectionCondition};
 use crate::ir::filter_generator::{FilterGenerator, FilterSubqueryFinder, FilterUtils};
-use crate::ir::Instruction::{
-    Continue, EndFilterExecution, ExecuteProcedureOnChild, ForEachElement, ForEachMember,
-    IfCurrentIndexEquals, IfCurrentIndexFromEndEquals, IfCurrentMemberNameEquals,
-    SaveCurrentNodeDuringTraversal, StartFilterExecution, TraverseCurrentNodeSubtree,
-    UpdateSubqueriesState,
-};
+use crate::ir::Instruction::{Continue, EndFilterExecution, ExecuteProcedureOnChild, ForEachElement, ForEachMember, IfActiveFilterInstance, IfCurrentIndexEquals, IfCurrentIndexFromEndEquals, IfCurrentMemberNameEquals, SaveCurrentNodeDuringTraversal, StartFilterExecution, TraverseCurrentNodeSubtree, UpdateSubqueriesState};
 use crate::ir::procedure_segments::{ProcedureSegments, ProcedureSegmentsData};
 
 pub struct IRGenerator<'a> {
@@ -356,37 +351,27 @@ impl IRGenerator<'_> {
             );
             let successors_segments =
                 successors_segments_excluding_filters.merge_with(&filters_successors);
-            if !successors_segments.is_empty() {
-                let procedure_name =
-                    self.get_or_create_procedure_for_segments(&successors_segments);
-                let successors_segments_conditions = self.get_successors_segments_conditions(
-                    &successors_segments_excluding_filters,
-                    &filters_segments,
-                );
-                instructions.push(
-                    Self::wrap_in_save_current_node_during_traversal_conditionally(
-                        ExecuteProcedureOnChild {
-                            name: procedure_name,
-                            conditions: successors_segments_conditions,
-                        },
-                        node_selected,
-                        selection_condition,
-                    ),
-                );
-            } else {
-                instructions.push(
-                    Self::wrap_in_save_current_node_during_traversal_conditionally(
-                        TraverseCurrentNodeSubtree,
-                        node_selected,
-                        selection_condition,
-                    ),
-                );
-            }
+            let successors_segments_conditions = self.get_successors_segments_conditions(
+                &successors_segments_excluding_filters,
+                &filters_segments,
+            );
+            instructions.append(&mut self.generate_procedure_execution(
+                segments,
+                &successors_segments,
+                node_selected,
+                selection_condition,
+                successors_segments_conditions,
+            ));
         } else if !descendants_segments.is_empty() {
             let procedure_name = self.get_or_create_procedure_for_segments(&descendants_segments);
             instructions.push(ExecuteProcedureOnChild {
                 name: procedure_name,
-                conditions: vec![None; descendants_segments.segments().len()],
+                conditions: vec![None; descendants_segments.segments().len()], // TODO: current selection conditions instead
+            });
+            instructions.push(Continue);
+        } else {
+            instructions.push(IfActiveFilterInstance {
+                instructions: vec![TraverseCurrentNodeSubtree]
             });
         }
         instructions

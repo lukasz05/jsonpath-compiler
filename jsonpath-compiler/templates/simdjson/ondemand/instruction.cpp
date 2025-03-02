@@ -20,17 +20,33 @@
         {
             {% call compile_instructions(instructions, current_node) %}
         }
+    {% when Instruction::IfActiveFilterInstance with { instructions } %}
+        {% if are_any_filters %}
+        if (!filter_instances.empty())
+        {
+            {% call compile_instructions(instructions, current_node) %}
+        }
+        {% endif %}
     {% when Instruction::ExecuteProcedureOnChild with { conditions, name } %}
         {% if are_any_filters %}
             selection_condition* new_segment_conditions[{{query_name}}_SEGMENT_COUNT] = {};
             {% for (i, condition) in conditions.iter().enumerate() %}
                 {% if let Some(condition) = condition %}
                     {% let template = SelectionConditionTemplate::new(condition) %}
-                    new_segment_conditions[{{i}}] = segment_conditions[{{i}}] == nullptr
-                        ? {{ template.render().unwrap() }}
-                        : selection_condition::new_and(segment_conditions[{{i}}], {{ template.render().unwrap() }});
-                {% else %}
-                    new_segment_conditions[{{i}}] = segment_conditions[{{i}}];
+                    new_segment_conditions[{{i}}] = {{ template.render().unwrap() }};
+                    if (segment_conditions[{{i}}] != nullptr)
+                        new_segment_conditions[{{i}}] = selection_condition::new_and(segment_conditions[{{i}}], new_segment_conditions[{{i}}]);
+                    {% if i > 0 %}
+                    else if (new_segment_conditions[{{i-1}}] != nullptr)
+                        new_segment_conditions[{{i}}] = selection_condition::new_and(new_segment_conditions[{{i-1}}], new_segment_conditions[{{i}}]);
+                    {% endif %}
+                    {% else %}
+                    if (segment_conditions[{{i}}] != nullptr)
+                        new_segment_conditions[{{i}}] = segment_conditions[{{i}}];
+                    {% if i > 0 %}
+                    else if (new_segment_conditions[{{i-1}}] != nullptr)
+                        new_segment_conditions[{{i}}] = new_segment_conditions[{{i-1}}];
+                    {% endif %}
                 {% endif %}
             {% endfor %}
             {{query_name}}_{{name|lower}}({{current_node}}, result_buf, all_results,

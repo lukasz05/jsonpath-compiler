@@ -39,6 +39,9 @@ pub enum Instruction {
         name: String,
         instructions: Vec<Instruction>,
     },
+    IfActiveFilterInstance {
+        instructions: Vec<Instruction>
+    },
     ExecuteProcedureOnChild {
         conditions: Vec<Option<SelectionCondition>>,
         name: String,

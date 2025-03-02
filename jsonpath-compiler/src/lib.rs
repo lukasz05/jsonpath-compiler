@@ -5,6 +5,7 @@ use crate::ir::Query;
 
 pub mod targets;
 pub mod compiler;
+pub mod test_helper;
 mod ir;
 
 #[derive(ValueEnum, Debug, Clone)]
