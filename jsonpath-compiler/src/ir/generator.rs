@@ -104,9 +104,11 @@ impl IRGenerator<'_> {
     fn get_successors_segments_conditions(
         &self,
         successors_segments_excluding_filters: &ProcedureSegments,
+        descendants_segments: &ProcedureSegments,
         filters_segments: &ProcedureSegments,
     ) -> Vec<Option<SelectionCondition>> {
         let max_segment = successors_segments_excluding_filters
+            .merge_with(&descendants_segments)
             .merge_with(&filters_segments.successors())
             .segments()
             .into_iter()
@@ -121,6 +123,8 @@ impl IRGenerator<'_> {
                 continue;
             }
             let successor_index = successor_index.unwrap();
+            let is_successor_descendant = descendants_segments.segments()
+                .contains(&successor_index);
             if successors_segments_excluding_filters
                 .segments()
                 .contains(&successor_index)
@@ -131,7 +135,18 @@ impl IRGenerator<'_> {
                 FilterUtils::get_filters_in_segment(self.query_syntax, segment_index);
             let conditions = filters_in_segment
                 .into_iter()
-                .map(|(_, filter_id)| Some(SelectionCondition::Filter { id: filter_id }))
+                .map(|(_, filter_id)| Some(
+                    if is_successor_descendant {
+                        SelectionCondition::Or {
+                            lhs: Box::new(SelectionCondition::RuntimeSegmentCondition {
+                                segment_index: successor_index
+                            }),
+                            rhs: Box::new(SelectionCondition::Filter { id: filter_id }),
+                        }
+                    } else {
+                        SelectionCondition::Filter { id: filter_id }
+                    }
+                ))
                 .collect();
             successors_segments_conditions[successor_index] = SelectionCondition::merge(conditions);
         }
@@ -198,7 +213,6 @@ impl IRGenerator<'_> {
     }
 
     fn generate_object_selectors(&mut self, segments: &ProcedureSegments) -> Vec<Instruction> {
-        let descendant_segments = segments.descendants();
         let wildcards_segments = segments.wildcards();
         let filters_segments = segments.filters();
         let filters_successors = filters_segments.successors();
@@ -210,13 +224,13 @@ impl IRGenerator<'_> {
             let successors_segments_excluding_filters = ProcedureSegments::merge(
                 self.query_syntax,
                 vec![
-                    descendant_segments.clone(),
                     wildcards_segments.successors(),
                     occurrences.successors(),
                 ],
             );
             let successors_segments_conditions = self.get_successors_segments_conditions(
                 &successors_segments_excluding_filters,
+                &segments.descendants(),
                 &filters_segments,
             );
             let selection_condition = self.get_selection_condition_with_filters(
@@ -226,9 +240,17 @@ impl IRGenerator<'_> {
                 ]),
                 &filters_segments.finals(),
             );
+            let procedure_segments = ProcedureSegments::merge(
+                self.query_syntax,
+                vec![
+                    successors_segments_excluding_filters,
+                    segments.descendants(),
+                    filters_successors.clone(),
+                ],
+            );
             let inner_instructions = self.generate_procedure_execution(
                 segments,
-                &successors_segments_excluding_filters.merge_with(&filters_successors),
+                &procedure_segments,
                 node_selected,
                 selection_condition,
                 successors_segments_conditions,
@@ -246,7 +268,6 @@ impl IRGenerator<'_> {
     fn generate_array_selectors(&mut self, segments: &ProcedureSegments) -> Vec<Instruction> {
         let wildcards_segments = segments.wildcards();
         let filters_segments = segments.filters();
-        let filters_successors = filters_segments.successors();
         let mut instructions = Vec::new();
         self.generate_start_filters_execution(segments, &mut instructions);
         for (index, occurrences) in segments.non_negative_index_selectors() {
@@ -255,7 +276,6 @@ impl IRGenerator<'_> {
             let successors_segments_excluding_filters = ProcedureSegments::merge(
                 self.query_syntax,
                 vec![
-                    segments.descendants(),
                     wildcards_segments.successors(),
                     occurrences.successors(),
                 ],
@@ -269,6 +289,7 @@ impl IRGenerator<'_> {
                     successors_segments_excluding_filters.merge_with(&neg_occurrences.successors());
                 let successors_segments_conditions = self.get_successors_segments_conditions(
                     &successors_segments_excluding_filters,
+                    &segments.descendants(),
                     &filters_segments,
                 );
                 let selection_condition = self.get_selection_condition_with_filters(
@@ -279,9 +300,17 @@ impl IRGenerator<'_> {
                     ]),
                     &filters_segments.finals(),
                 );
+                let procedure_segments = ProcedureSegments::merge(
+                    self.query_syntax,
+                    vec![
+                        successors_segments_excluding_filters,
+                        segments.descendants(),
+                        filters_segments.successors(),
+                    ],
+                );
                 let inner_inner_instructions = self.generate_procedure_execution(
                     segments,
-                    &successors_segments_excluding_filters.merge_with(&filters_successors),
+                    &procedure_segments,
                     node_selected || neg_node_selected,
                     selection_condition,
                     successors_segments_conditions,
@@ -293,6 +322,7 @@ impl IRGenerator<'_> {
             }
             let successors_segments_conditions = self.get_successors_segments_conditions(
                 &successors_segments_excluding_filters,
+                &segments.descendants(),
                 &filters_segments,
             );
             let selection_condition = self.get_selection_condition_with_filters(
@@ -302,11 +332,19 @@ impl IRGenerator<'_> {
                 ]),
                 &filters_segments.finals(),
             );
+            let procedure_segments = ProcedureSegments::merge(
+                self.query_syntax,
+                vec![
+                    successors_segments_excluding_filters,
+                    segments.descendants(),
+                    filters_segments.successors(),
+                ],
+            );
             inner_instructions = inner_instructions
                 .into_iter()
                 .chain(self.generate_procedure_execution(
                     segments,
-                    &successors_segments_excluding_filters.merge_with(&filters_successors),
+                    &procedure_segments,
                     node_selected,
                     selection_condition,
                     successors_segments_conditions,
@@ -323,13 +361,13 @@ impl IRGenerator<'_> {
             let successors_segments_excluding_filters = ProcedureSegments::merge(
                 self.query_syntax,
                 vec![
-                    segments.descendants(),
                     wildcards_segments.successors(),
                     occurrences.successors(),
                 ],
             );
             let successors_segments_conditions = self.get_successors_segments_conditions(
                 &successors_segments_excluding_filters,
+                &segments.descendants(),
                 &filters_segments,
             );
             let selection_condition = self.get_selection_condition_with_filters(
@@ -339,9 +377,17 @@ impl IRGenerator<'_> {
                 ]),
                 &filters_segments.finals(),
             );
+            let procedure_segments = ProcedureSegments::merge(
+                self.query_syntax,
+                vec![
+                    successors_segments_excluding_filters,
+                    segments.descendants(),
+                    filters_segments.successors(),
+                ],
+            );
             let inner_instructions = self.generate_procedure_execution(
                 segments,
-                &successors_segments_excluding_filters.merge_with(&filters_successors),
+                &procedure_segments,
                 node_selected,
                 selection_condition,
                 successors_segments_conditions,
@@ -372,19 +418,23 @@ impl IRGenerator<'_> {
                 &wildcards_segments.finals(),
                 &filters_segments.finals(),
             );
-            let successors_segments_excluding_filters = ProcedureSegments::merge(
-                self.query_syntax,
-                vec![descendants_segments, wildcards_segments.successors()],
-            );
-            let successors_segments =
-                successors_segments_excluding_filters.merge_with(&filters_successors);
+            let successors_segments_excluding_filters = wildcards_segments.successors();
             let successors_segments_conditions = self.get_successors_segments_conditions(
                 &successors_segments_excluding_filters,
+                &segments.descendants(),
                 &filters_segments,
+            );
+            let procedure_segments = ProcedureSegments::merge(
+                self.query_syntax,
+                vec![
+                    successors_segments_excluding_filters,
+                    segments.descendants(),
+                    filters_successors,
+                ],
             );
             instructions.append(&mut self.generate_procedure_execution(
                 segments,
-                &successors_segments,
+                &procedure_segments,
                 node_selected,
                 selection_condition,
                 successors_segments_conditions,

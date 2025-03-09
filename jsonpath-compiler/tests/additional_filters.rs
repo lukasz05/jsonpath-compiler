@@ -122,8 +122,12 @@ static NESTED_DOCUMENT_2: &str = r#"
 ]
 "#;
 
+fn wrap_in_object(json: &str) -> String {
+    format!("{{ \"root\": {json} }}")
+}
+
 #[test]
-fn name_selectors_after_descendant_filter_selector() {
+fn name_selectors_after_descendant_filter_selector_1() {
     TestHelper::new(
         r#"$..[?@.a == 123].b.c"#,
         NESTED_DOCUMENT_2,
@@ -133,7 +137,17 @@ fn name_selectors_after_descendant_filter_selector() {
 }
 
 #[test]
-fn descendant_name_selector_after_descendant_filter_selector() {
+fn name_selectors_after_descendant_filter_selector_2() {
+    TestHelper::new(
+        r#"$..[?@.a == 123].b.c"#,
+        &wrap_in_object(NESTED_DOCUMENT_2),
+        r#"[1, 2, 3]"#,
+        Target::SimdjsonOndemand,
+    ).run()
+}
+
+#[test]
+fn descendant_name_selector_after_descendant_filter_selector_1() {
     TestHelper::new(
         r#"$..[?@.a == 123]..c"#,
         NESTED_DOCUMENT_2,
@@ -143,7 +157,17 @@ fn descendant_name_selector_after_descendant_filter_selector() {
 }
 
 #[test]
-fn name_selector_after_descendant_name_selector_after_descendant_filter_selector() {
+fn descendant_name_selector_after_descendant_filter_selector_2() {
+    TestHelper::new(
+        r#"$..[?@.a == 123]..c"#,
+        &wrap_in_object(NESTED_DOCUMENT_2),
+        r#"[1, 2, {"a": 0, "b": {"c": -1}}, -1, 3]"#,
+        Target::SimdjsonOndemand,
+    ).run()
+}
+
+#[test]
+fn name_selector_after_descendant_name_selector_after_descendant_filter_selector_1() {
     TestHelper::new(
         r#"$..[?@.a == 123].b..c"#,
         NESTED_DOCUMENT_2,
@@ -153,7 +177,17 @@ fn name_selector_after_descendant_name_selector_after_descendant_filter_selector
 }
 
 #[test]
-fn filter_selector_after_descendant_name_selector() {
+fn name_selector_after_descendant_name_selector_after_descendant_filter_selector_2() {
+    TestHelper::new(
+        r#"$..[?@.a == 123].b..c"#,
+        &wrap_in_object(NESTED_DOCUMENT_2),
+        r#"[1, 2, 3]"#,
+        Target::SimdjsonOndemand,
+    ).run()
+}
+
+#[test]
+fn filter_selector_after_descendant_name_selector_1() {
     TestHelper::new(
         r#"$..b[?@.c]"#,
         NESTED_DOCUMENT_2,
@@ -163,7 +197,17 @@ fn filter_selector_after_descendant_name_selector() {
 }
 
 #[test]
-fn filter_selector_after_descendant_index_selector() {
+fn filter_selector_after_descendant_name_selector_2() {
+    TestHelper::new(
+        r#"$..b[?@.c]"#,
+        &wrap_in_object(NESTED_DOCUMENT_2),
+        r#"[{"c":2 }]"#,
+        Target::SimdjsonOndemand,
+    ).run()
+}
+
+#[test]
+fn filter_selector_after_descendant_index_selector_1() {
     TestHelper::new(
         r#"$..[0][?@[0]]"#,
         r#"[[[1], 2, 3]]"#,
@@ -173,7 +217,17 @@ fn filter_selector_after_descendant_index_selector() {
 }
 
 #[test]
-fn filter_selector_after_descendant_negative_index() {
+fn filter_selector_after_descendant_index_selector_2() {
+    TestHelper::new(
+        r#"$..[0][?@[0]]"#,
+        &wrap_in_object(r#"[[[1], 2, 3]]"#),
+        r#"[[1]]"#,
+        Target::SimdjsonOndemand,
+    ).run()
+}
+
+#[test]
+fn filter_selector_after_descendant_negative_index_1() {
     TestHelper::new(
         r#"$..[-1][?@[0]]"#,
         r#"[[1, 2, [3]]]"#,
@@ -183,7 +237,17 @@ fn filter_selector_after_descendant_negative_index() {
 }
 
 #[test]
-fn consecutive_descendant_filter_selectors() {
+fn filter_selector_after_descendant_negative_index_2() {
+    TestHelper::new(
+        r#"$..[-1][?@[0]]"#,
+        &wrap_in_object(r#"[[1, 2, [3]]]"#),
+        r#"[[3]]"#,
+        Target::SimdjsonOndemand,
+    ).run()
+}
+
+#[test]
+fn consecutive_descendant_filter_selectors_1() {
     TestHelper::new(
         r#"$..[?@.a == 123]..[?@.c > 0]"#,
         NESTED_DOCUMENT_2,
@@ -193,7 +257,17 @@ fn consecutive_descendant_filter_selectors() {
 }
 
 #[test]
-fn descendant_filter_selectors_with_name_selector_in_between() {
+fn consecutive_descendant_filter_selectors_2() {
+    TestHelper::new(
+        r#"$..[?@.a == 123]..[?@.c > 0]"#,
+        &wrap_in_object(NESTED_DOCUMENT_2),
+        r#"[{"c": 1, "a": 123, "b": {"c": 2}}, {"c": 2}, {"c": 3, "a": 111}]"#,
+        Target::SimdjsonOndemand,
+    ).run()
+}
+
+#[test]
+fn descendant_filter_selectors_with_name_selector_in_between_1() {
     TestHelper::new(
         r#"$..[?@.a == 123].b..[?@.c > 0]"#,
         NESTED_DOCUMENT_2,
@@ -203,7 +277,17 @@ fn descendant_filter_selectors_with_name_selector_in_between() {
 }
 
 #[test]
-fn filter_selector_after_descendant_filter_selector() {
+fn descendant_filter_selectors_with_name_selector_in_between_2() {
+    TestHelper::new(
+        r#"$..[?@.a == 123].b..[?@.c > 0]"#,
+        &wrap_in_object(NESTED_DOCUMENT_2),
+        r#"[{"c": 2}]"#,
+        Target::SimdjsonOndemand,
+    ).run()
+}
+
+#[test]
+fn filter_selector_after_descendant_filter_selector_1() {
     TestHelper::new(
         r#"$..[?@.a == 123][?@.c > 1]"#,
         NESTED_DOCUMENT_2,
@@ -211,6 +295,17 @@ fn filter_selector_after_descendant_filter_selector() {
         Target::SimdjsonOndemand,
     ).run()
 }
+
+#[test]
+fn filter_selector_after_descendant_filter_selector_2() {
+    TestHelper::new(
+        r#"$..[?@.a == 123][?@.c > 1]"#,
+        &wrap_in_object(NESTED_DOCUMENT_2),
+        r#"[{"c":2 }, {"c":3, "a":111 }]"#,
+        Target::SimdjsonOndemand,
+    ).run()
+}
+
 
 #[test]
 fn descendant_filter_selector_after_filter_selector() {
