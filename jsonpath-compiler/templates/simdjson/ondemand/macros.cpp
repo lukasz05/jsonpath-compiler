@@ -408,7 +408,7 @@ if (current_node.is_member || current_node.is_element) {
                 f_instance->current_subqueries_segments[i] = nullptr;
                 continue;
             }
-            if (subquery_segment->next == nullptr) {
+            if (subquery_segment->next == nullptr && f_instance->subqueries_results[i].type == NOTHING) {
                 if (node.is_scalar())
                     reached_subqueries_results.push_back(&f_instance->subqueries_results[i]);
                 else

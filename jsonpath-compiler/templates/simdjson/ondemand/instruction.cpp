@@ -34,18 +34,16 @@
                 {% if let Some(condition) = condition %}
                     {% let template = SelectionConditionTemplate::new(condition) %}
                     new_segment_conditions[{{i}}] = {{ template.render().unwrap() }};
-                    if (segment_conditions[{{i}}] != nullptr)
-                        new_segment_conditions[{{i}}] = selection_condition::new_and(segment_conditions[{{i}}], new_segment_conditions[{{i}}]);
                     {% if i > 0 %}
-                    else if (new_segment_conditions[{{i-1}}] != nullptr)
-                        new_segment_conditions[{{i}}] = selection_condition::new_and(new_segment_conditions[{{i-1}}], new_segment_conditions[{{i}}]);
+                        if (segment_conditions[{{i-1}}] != nullptr)
+                            new_segment_conditions[{{i}}] = selection_condition::new_and(segment_conditions[{{i-1}}], new_segment_conditions[{{i}}]);
                     {% endif %}
                     {% else %}
                     if (segment_conditions[{{i}}] != nullptr)
                         new_segment_conditions[{{i}}] = segment_conditions[{{i}}];
                     {% if i > 0 %}
-                    else if (new_segment_conditions[{{i-1}}] != nullptr)
-                        new_segment_conditions[{{i}}] = new_segment_conditions[{{i-1}}];
+                    else if (segment_conditions[{{i-1}}] != nullptr)
+                        new_segment_conditions[{{i}}] = segment_conditions[{{i-1}}];
                     {% endif %}
                 {% endif %}
             {% endfor %}
