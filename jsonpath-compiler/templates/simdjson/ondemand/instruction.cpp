@@ -47,15 +47,20 @@
                     {% endif %}
                 {% endif %}
             {% endfor %}
-            {{query_name}}_{{name|lower}}({{current_node}}, result_buf, all_results,
-            new_segment_conditions, filter_instances,
             {% if current_node == "field.value()" %}
-            { true, false, 0, 0, key});
+            current_node.is_member = true;
+            current_node.is_element = false;
+            current_node.key = key;
             {% else if current_node == "element" %}
-            { false, true, array_length, index, {}});
+            current_node.is_member = false;
+            current_node.is_element = true;
+            current_node.array_length = array_length;
+            current_node.index = index;
             {% else %}
-            { false, false, 0, 0, {}});
+            current_node.is_member = false
+            current_node.is_element = false;
             {% endif %}
+            {{query_name}}_{{name|lower}}({{current_node}}, result_buf, all_results, new_segment_conditions, filter_instances, current_node);
         {% else %}
             {{query_name}}_{{name|lower}}({{current_node}}, result_buf, all_results);
         {% endif %}
@@ -80,14 +85,20 @@
         continue;
     {% when Instruction::TraverseCurrentNodeSubtree %}
         {% if are_any_filters %}
-        traverse_and_save_selected_nodes({{current_node}}, result_buf, filter_instances, reached_subqueries_results,
         {% if current_node == "field.value()" %}
-        { true, false, 0, 0, key});
+        current_node.is_member = true;
+        current_node.is_element = false;
+        current_node.key = key;
         {% else if current_node == "element" %}
-        { false, true, array_length, index, {}});
+        current_node.is_member = false;
+        current_node.is_element = true;
+        current_node.array_length = array_length;
+        current_node.index = index;
         {% else %}
-        { false, false, 0, 0, {}});
+        current_node.is_member = false
+        current_node.is_element = false;
         {% endif %}
+        traverse_and_save_selected_nodes({{current_node}}, result_buf, filter_instances, current_node);
         {% else %}
         traverse_and_save_selected_nodes({{current_node}}, result_buf);
         {% endif %}
@@ -96,7 +107,6 @@
     {% when Instruction::EndFilterExecution %}
         filter_instances.pop_back();
     {% when Instruction::UpdateSubqueriesState %}
-        vector<subquery_result*> reached_subqueries_results;
         {% call common::compile_update_subqueries_state() %}
 {% endmatch %}
 

@@ -56,7 +56,8 @@ int main(int argc, char **argv)
     vector<tuple<string *, size_t, size_t, selection_condition*>> all_results;
     vector<filter_instance*> filter_instances;
     selection_condition *segment_conditions[_SEGMENT_COUNT] = {};
-    _selectors_0(root_node, nullptr, all_results, segment_conditions, filter_instances, {false, false, 0, 0, {}});
+    current_node_data current_node {false, false, 0, 0, {}};
+    _selectors_0(root_node, nullptr, all_results, segment_conditions, filter_instances, current_node);
     {% else %}
     vector<tuple<string *, size_t, size_t>> all_results;
     _selectors_0(root_node, nullptr, all_results);

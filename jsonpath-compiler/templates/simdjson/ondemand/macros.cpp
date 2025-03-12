@@ -11,6 +11,8 @@ struct current_node_data;
 vector<selection_condition*> all_selection_conditions;
 vector<filter_instance*> all_filter_instances;
 
+vector<subquery_result *> reached_subqueries_results;
+
 enum subquery_result_type
 {
  NOTHING, STRING, INT, FLOAT, BOOL, __NULL, COMPLEX
@@ -134,11 +136,23 @@ struct filter_instance {
     uint8_t filter_segment_index;
     uint8_t filter_selector_index;
     array<subquery_path_segment *, MAX_SUBQUERIES_IN_FILTER> current_subqueries_segments;
+    vector<array<subquery_path_segment *, MAX_SUBQUERIES_IN_FILTER>> current_subqueries_segments_backups;
     array<subquery_result, MAX_SUBQUERIES_IN_FILTER> subqueries_results;
 
     filter_instance(uint8_t segment_index, uint8_t selector_index)
         : filter_segment_index(segment_index), filter_selector_index(selector_index)
     {
+    }
+
+    void save_current_subqueries_segments()
+    {
+        current_subqueries_segments_backups.push_back(current_subqueries_segments);
+    }
+
+    void restore_current_subqueries_segments()
+    {
+        current_subqueries_segments = current_subqueries_segments_backups.back();
+        current_subqueries_segments_backups.pop_back();
     }
 };
 
@@ -232,12 +246,14 @@ void traverse_and_save_selected_nodes(ondemand::value &node, string* result_buf)
 {% if are_any_filters %}
 void traverse_and_save_selected_nodes(ondemand::value &node, string *result_buf,
                                       vector<filter_instance*> &filter_instances,
-                                      vector<subquery_result *> &reached_subqueries_results,
-                                      current_node_data current_node)
+                                      current_node_data &current_node)
 {
+    bool is_member = current_node.is_member;
+    bool is_element = current_node.is_element;
+    bool _is_scalar = node.is_scalar();
     {% call compile_update_subqueries_state() %}
 
-    if (node.is_scalar()) {
+    if (_is_scalar) {
         if (result_buf != nullptr)
             *result_buf += node.raw_json().value();
 
@@ -287,9 +303,9 @@ void traverse_and_save_selected_nodes(ondemand::value &node, string *result_buf,
                 }
             }
         }
-        if (current_node.is_member || current_node.is_element) {
+        if (is_member || is_element) {
             for (int i = 0; i < filter_instances.size(); i++)
-                filter_instances[i]->current_subqueries_segments = current_subqueries_segments_copies[i];
+                filter_instances[i]->restore_current_subqueries_segments();
         }
         return;
     }
@@ -318,9 +334,10 @@ void traverse_and_save_selected_nodes(ondemand::value &node, string *result_buf,
                 *result_buf += "\":";
             }
             first = false;
-            traverse_and_save_selected_nodes(field.value(), result_buf, filter_instances, reached_subqueries_results,
-                {true, false, 0, 0, key}
-            );
+            current_node.is_member = true;
+            current_node.is_element = false;
+            current_node.key = key;
+            traverse_and_save_selected_nodes(field.value(), result_buf, filter_instances, current_node);
         }
         if (result_buf != nullptr)
             *result_buf += "}";
@@ -343,18 +360,19 @@ void traverse_and_save_selected_nodes(ondemand::value &node, string *result_buf,
                     *result_buf += ", ";
             }
             first = false;
-
-            traverse_and_save_selected_nodes(element, result_buf, filter_instances, reached_subqueries_results,
-                {false, true, array_length, index, {}}
-            );
+            current_node.is_member = false;
+            current_node.is_element = false;
+            current_node.array_length = array_length;
+            current_node.index = index;
+            traverse_and_save_selected_nodes(element, result_buf, filter_instances, current_node);
         }
         if (result_buf != nullptr)
             *result_buf += "]";
     }
 
-    if (current_node.is_member || current_node.is_element) {
+    if (is_member || is_element) {
         for (int i = 0; i < filter_instances.size(); i++)
-            filter_instances[i]->current_subqueries_segments = current_subqueries_segments_copies[i];
+            filter_instances[i]->restore_current_subqueries_segments();
     }
 }
 {% endif %}
@@ -378,11 +396,9 @@ all_filter_instances.push_back(f_instance_{{filter_id.segment_index}}_{{filter_i
 {% endmacro %}
 
 {% macro compile_update_subqueries_state() %}
-vector<array<subquery_path_segment*, MAX_SUBQUERIES_IN_FILTER>> current_subqueries_segments_copies;
-current_subqueries_segments_copies.reserve(filter_instances.size());
 if (current_node.is_member || current_node.is_element) {
     for (auto f_instance : filter_instances) {
-        current_subqueries_segments_copies.push_back(f_instance->current_subqueries_segments);
+        f_instance->save_current_subqueries_segments();
         if (!f_instance->is_active) {
             f_instance->is_active = true;
             continue;;
@@ -409,7 +425,7 @@ if (current_node.is_member || current_node.is_element) {
                 continue;
             }
             if (subquery_segment->next == nullptr && f_instance->subqueries_results[i].type == NOTHING) {
-                if (node.is_scalar())
+                if (_is_scalar)
                     reached_subqueries_results.push_back(&f_instance->subqueries_results[i]);
                 else
                     f_instance->subqueries_results[i].type = COMPLEX;
@@ -423,7 +439,7 @@ if (current_node.is_member || current_node.is_element) {
 {% macro generate_procedures_declarations(procedures) %}
 {% for procedure in procedures %}
 {% if procedure.are_any_filters %}
-void {{procedure.query_name}}_{{procedure.name|lower}}(ondemand::value &node, string *result_buf, vector<tuple<string *, size_t, size_t, selection_condition*>> &all_results, selection_condition *segment_conditions[], vector<filter_instance*> &filter_instances, current_node_data current_node);
+void {{procedure.query_name}}_{{procedure.name|lower}}(ondemand::value &node, string *result_buf, vector<tuple<string *, size_t, size_t, selection_condition*>> &all_results, selection_condition *segment_conditions[], vector<filter_instance*> &filter_instances, current_node_data &current_node);
 {% else %}
 void {{procedure.query_name}}_{{procedure.name|lower}}(ondemand::value &node, string *result_buf, vector<tuple<string *, size_t, size_t>> &all_results);
 {% endif %}

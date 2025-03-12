@@ -56,7 +56,8 @@ string {{query_name}}(const char* padded_input, size_t length)
     vector<tuple<string *, size_t, size_t, selection_condition*>> all_results;
     vector<filter_instance*> filter_instances;
     selection_condition *segment_conditions[{{query_name}}_SEGMENT_COUNT] = {};
-    {{query_name}}_selectors_0(root_node, nullptr, all_results, segment_conditions, filter_instances, {false, false, 0, 0, {}});
+    current_node_data current_node {false, false, 0, 0, {}};
+    {{query_name}}_selectors_0(root_node, nullptr, all_results, segment_conditions, filter_instances, current_node);
     {% else %}
     vector<tuple<string *, size_t, size_t>> all_results;
     {{query_name}}_selectors_0(root_node, nullptr, all_results);
