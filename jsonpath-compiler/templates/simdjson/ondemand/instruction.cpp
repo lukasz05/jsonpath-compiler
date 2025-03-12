@@ -154,8 +154,18 @@
                 *result_buf += "[";
             bool first = true;
             size_t index = 0;
-            {% if are_any_filters || crate::targets::simdjson::is_array_length_needed(instructions) %}
+            {% if crate::targets::simdjson::is_array_length_needed(instructions) %}
             size_t array_length = array.count_elements();
+            {% else if are_any_filters %}
+            size_t array_length = 0;
+            for (int i = 0; i < filter_instances.size(); i++)
+            {
+                if (filter_instances[i]->is_any_current_subquery_negative_index())
+                {
+                    array_length = array.count_elements();
+                    break;
+                }
+            }
             {% endif %}
             for (ondemand::value element : array)
             {

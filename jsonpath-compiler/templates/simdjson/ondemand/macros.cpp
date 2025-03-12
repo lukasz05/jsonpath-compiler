@@ -131,6 +131,13 @@ struct selection_condition {
     }
 };
 
+struct subquery_path_segment {
+    const bool is_name;
+    const char* name;
+    const int64_t index;
+    const subquery_path_segment *next;
+};
+
 struct filter_instance {
     bool is_active;
     uint8_t filter_segment_index;
@@ -154,14 +161,16 @@ struct filter_instance {
         current_subqueries_segments = current_subqueries_segments_backups.back();
         current_subqueries_segments_backups.pop_back();
     }
+
+    bool is_any_current_subquery_negative_index()
+    {
+        for (auto subquery_segment : current_subqueries_segments)
+            if (subquery_segment != nullptr && !subquery_segment->is_name && subquery_segment->index < 0)
+                return true;
+        return false;
+    }
 };
 
-struct subquery_path_segment {
-    const bool is_name;
-    const char* name;
-    const int64_t index;
-    const subquery_path_segment *next;
-};
 
 struct current_node_data {
     bool is_member;
@@ -350,7 +359,16 @@ void traverse_and_save_selected_nodes(ondemand::value &node, string *result_buf,
         bool first = true;
         size_t index = 0;
 
-        size_t array_length = array.count_elements();
+
+        size_t array_length = 0;
+        for (int i = 0; i < filter_instances.size(); i++)
+        {
+            if (filter_instances[i]->is_any_current_subquery_negative_index())
+            {
+                array_length = array.count_elements();
+                break;
+            }
+        }
 
         for (ondemand::value element : array) {
             if (!first)
