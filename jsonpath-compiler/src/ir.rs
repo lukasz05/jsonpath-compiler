@@ -244,6 +244,7 @@ impl FilterId {
 #[derive(Debug)]
 pub struct FilterSubquery {
     pub is_absolute: bool,
+    pub is_existence_test: bool,
     pub segments: Vec<FilterSubquerySegment>,
 }
 

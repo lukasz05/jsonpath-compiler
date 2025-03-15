@@ -92,8 +92,8 @@ impl FilterSubqueryFinder {
                 .collect(),
             rsonpath_syntax::LogicalExpr::Test(test_expr) => {
                 let subquery = match test_expr {
-                    Relative(subquery) => Self::convert_subquery(subquery, false),
-                    Absolute(subquery) => Self::convert_subquery(subquery, true),
+                    Relative(subquery) => Self::convert_subquery(subquery, false, true),
+                    Absolute(subquery) => Self::convert_subquery(subquery, true, true),
                 };
                 vec![subquery]
             }
@@ -105,10 +105,10 @@ impl FilterSubqueryFinder {
     ) -> Option<FilterSubquery> {
         let subquery = match comparison_expr {
             RelativeSingularQuery(subquery) => {
-                Some(Self::convert_singular_subquery(subquery, false))
+                Some(Self::convert_singular_subquery(subquery, false, false))
             }
             AbsoluteSingularQuery(subquery) => {
-                Some(Self::convert_singular_subquery(subquery, true))
+                Some(Self::convert_singular_subquery(subquery, true, false))
             }
             _ => return None,
         };
@@ -118,9 +118,11 @@ impl FilterSubqueryFinder {
     fn convert_subquery(
         subquery: &rsonpath_syntax::JsonPathQuery,
         is_absolute: bool,
+        is_existence_test: bool,
     ) -> FilterSubquery {
         let mut result = FilterSubquery {
             is_absolute,
+            is_existence_test,
             segments: Vec::new(),
         };
         for segment in subquery.segments() {
@@ -148,9 +150,11 @@ impl FilterSubqueryFinder {
     fn convert_singular_subquery(
         subquery: &rsonpath_syntax::SingularJsonPathQuery,
         is_absolute: bool,
+        is_existence_test: bool
     ) -> FilterSubquery {
         let mut result = FilterSubquery {
             is_absolute,
+            is_existence_test,
             segments: Vec::new(),
         };
         for segment in subquery.segments() {
