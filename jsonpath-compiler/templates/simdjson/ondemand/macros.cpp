@@ -143,25 +143,24 @@ struct filter_instance {
     bool is_active;
     uint8_t filter_segment_index;
     uint8_t filter_selector_index;
+    uint8_t subquery_count;
     array<subquery_path_segment *, MAX_SUBQUERIES_IN_FILTER> current_subqueries_segments;
-    vector<array<subquery_path_segment *, MAX_SUBQUERIES_IN_FILTER>> current_subqueries_segments_backups;
+    vector<subquery_path_segment *> current_subqueries_segments_backups;
     array<subquery_result, MAX_SUBQUERIES_IN_FILTER> subqueries_results;
     array<bool, MAX_SUBQUERIES_IN_FILTER> is_subquery_existence_test;
 
-    filter_instance(uint8_t segment_index, uint8_t selector_index)
-        : filter_segment_index(segment_index), filter_selector_index(selector_index)
+    filter_instance(uint8_t segment_index, uint8_t selector_index, uint8_t subquery_count)
+        : filter_segment_index(segment_index), filter_selector_index(selector_index), subquery_count(subquery_count)
     {
     }
 
-    void save_current_subqueries_segments()
-    {
-        current_subqueries_segments_backups.push_back(current_subqueries_segments);
+    void save_current_subqueries_segments() {
+        current_subqueries_segments_backups.insert(current_subqueries_segments_backups.end(), current_subqueries_segments.begin(), current_subqueries_segments.begin() + subquery_count);
     }
 
-    void restore_current_subqueries_segments()
-    {
-        current_subqueries_segments = current_subqueries_segments_backups.back();
-        current_subqueries_segments_backups.pop_back();
+    void restore_current_subqueries_segments() {
+        copy(current_subqueries_segments_backups.end() - subquery_count, current_subqueries_segments_backups.end(), current_subqueries_segments.begin());
+        current_subqueries_segments_backups.resize(current_subqueries_segments_backups.size() - subquery_count);
     }
 
     bool is_any_current_subquery_negative_index()
@@ -399,7 +398,7 @@ void traverse_and_save_selected_nodes(ondemand::value &node, string *result_buf,
 {% endmacro %}
 
 {% macro compile_start_filter_execution(filter_id, query_name) %}
-auto* f_instance_{{filter_id.segment_index}}_{{filter_id.selector_index}} = new filter_instance({{filter_id.segment_index}}, {{filter_id.selector_index}});
+auto* f_instance_{{filter_id.segment_index}}_{{filter_id.selector_index}} = new filter_instance({{filter_id.segment_index}}, {{filter_id.selector_index}}, {{filter_subqueries.unwrap().get(filter_id).unwrap().len()}});
 {% for (subquery_index, subquery) in filter_subqueries.unwrap().get(filter_id).unwrap().into_iter().enumerate() %}
         f_instance_{{filter_id.segment_index}}_{{filter_id.selector_index}}->subqueries_results[{{subquery_index}}] = {};
         f_instance_{{filter_id.segment_index}}_{{filter_id.selector_index}}->current_subqueries_segments[{{subquery_index}}] =
@@ -428,7 +427,7 @@ if (current_node.is_member || current_node.is_element) {
             f_instance->is_active = true;
             continue;
         }
-        for (size_t i = 0; i < MAX_SUBQUERIES_IN_FILTER; i++) {
+        for (size_t i = 0; i < f_instance->subquery_count; i++) {
             auto subquery_segment = f_instance->current_subqueries_segments[i];
             if (subquery_segment == nullptr)
                 continue;
