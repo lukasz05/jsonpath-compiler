@@ -9,6 +9,7 @@
 #include <vector>
 #include <queue>
 #include <set>
+#include <unordered_set>
 #include <string>
 #include <algorithm>
 #include <fcntl.h>
@@ -54,10 +55,10 @@ int main(int argc, char **argv)
     ondemand::value root_node = doc.get_value().value();
     {% if Self::are_any_filters(self) %}
     vector<tuple<string *, size_t, size_t, selection_condition*>> all_results;
-    vector<filter_instance*> filter_instances;
+    unordered_set<int> filter_instances_ids;
     selection_condition *segment_conditions[_SEGMENT_COUNT] = {};
     current_node_data current_node {false, false, 0, 0, {}};
-    _selectors_0(root_node, nullptr, all_results, segment_conditions, filter_instances, current_node);
+    _selectors_0(root_node, nullptr, all_results, segment_conditions, filter_instances_ids, current_node);
     {% else %}
     vector<tuple<string *, size_t, size_t>> all_results;
     _selectors_0(root_node, nullptr, all_results);
@@ -72,7 +73,9 @@ int main(int argc, char **argv)
     {% endif %}
     {
         {% if Self::are_any_filters(self) %}
-        if (_evaluate_selection_condition(selection_condition))
+        bool condition_value;
+        _try_evaluate_selection_condition(selection_condition, condition_value);
+        if (condition_value)
         {
         {% endif %}
         if (!first)
@@ -92,7 +95,7 @@ int main(int argc, char **argv)
     {% if Self::are_any_filters(self) %}
     for (auto filter_instance : all_filter_instances)
         delete filter_instance;
-    for (auto selection_condition : all_selection_conditions)
+    for (auto selection_condition : selection_conditions_to_delete)
         delete selection_condition;
     {% endif %}
     return 0;
@@ -124,7 +127,7 @@ string read_input(const char* filename)
 {% call common::generate_filter_aux_procedures_definitions("", filter_procedures) %}
 {% endif %}
 
-{% call common::generate_traverse_and_save_selected_nodes_procedure(Self::are_any_filters(self)) %}
+{% call common::generate_traverse_and_save_selected_nodes_procedure(Self::are_any_filters(self), eager_filter_evaluation, "") %}
 
 {% for procedure in procedures %}
     {{ procedure.render().unwrap() }}

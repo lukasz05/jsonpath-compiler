@@ -4,7 +4,7 @@ use itertools::Itertools;
 
 use crate::ir::{Instruction, Procedure, Query, SelectionCondition};
 use crate::ir::filter_generator::{FilterGenerator, FilterSubqueryFinder, FilterUtils};
-use crate::ir::Instruction::{Continue, EndFilterExecution, ExecuteProcedureOnChild, ForEachElement, ForEachMember, IfActiveFilterInstance, IfCurrentIndexEquals, IfCurrentIndexFromEndEquals, IfCurrentMemberNameEquals, SaveCurrentNodeDuringTraversal, StartFilterExecution, TraverseCurrentNodeSubtree, UpdateSubqueriesState};
+use crate::ir::Instruction::{Continue, EndFiltersExecution, ExecuteProcedureOnChild, ForEachElement, ForEachMember, IfActiveFilterInstance, IfCurrentIndexEquals, IfCurrentIndexFromEndEquals, IfCurrentMemberNameEquals, SaveCurrentNodeDuringTraversal, StartFilterExecution, TraverseCurrentNodeSubtree, UpdateSubqueriesState};
 use crate::ir::procedure_segments::{ProcedureSegments, ProcedureSegmentsData};
 
 pub struct IRGenerator<'a> {
@@ -261,7 +261,7 @@ impl IRGenerator<'_> {
             });
         }
         instructions.append(&mut self.generate_wildcard_filter_and_descendant_selectors(segments));
-        self.generate_end_filter_execution_instructions(segments, &mut instructions);
+        self.generate_end_filters_execution_instruction(segments, &mut instructions);
         vec![ForEachMember { instructions }]
     }
 
@@ -398,7 +398,7 @@ impl IRGenerator<'_> {
             });
         }
         instructions.append(&mut self.generate_wildcard_filter_and_descendant_selectors(segments));
-        self.generate_end_filter_execution_instructions(segments, &mut instructions);
+        self.generate_end_filters_execution_instruction(segments, &mut instructions);
         vec![ForEachElement { instructions }]
     }
 
@@ -475,7 +475,7 @@ impl IRGenerator<'_> {
                     node_selection_condition,
                 ),
             );
-            self.generate_end_filter_execution_instructions(caller_segments, &mut instructions);
+            self.generate_end_filters_execution_instruction(caller_segments, &mut instructions);
             instructions.push(Continue);
         } else {
             instructions.push(
@@ -485,7 +485,7 @@ impl IRGenerator<'_> {
                     node_selection_condition,
                 ),
             );
-            self.generate_end_filter_execution_instructions(caller_segments, &mut instructions);
+            self.generate_end_filters_execution_instruction(caller_segments, &mut instructions);
             instructions.push(Continue);
         }
         instructions
@@ -502,19 +502,21 @@ impl IRGenerator<'_> {
         segments.name()
     }
 
-    fn generate_end_filter_execution_instructions(
+    fn generate_end_filters_execution_instruction(
         &self,
         segments: &ProcedureSegments,
         instructions: &mut Vec<Instruction>,
     ) {
-        let filters_in_caller_segments_count = segments
+        let filters_in_caller_segments_count: usize = segments
             .segments()
             .into_iter()
             .map(|segment_index| {
                 FilterUtils::get_filters_in_segment(self.query_syntax, segment_index).len()
             })
             .sum();
-        (0..filters_in_caller_segments_count).for_each(|_| instructions.push(EndFilterExecution));
+        if filters_in_caller_segments_count > 0 {
+            instructions.push(EndFiltersExecution);
+        }
     }
 
     fn wrap_in_save_current_node_during_traversal_conditionally(

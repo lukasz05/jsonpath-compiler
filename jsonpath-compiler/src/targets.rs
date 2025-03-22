@@ -10,11 +10,20 @@ pub trait TargetCodeGenerator {
         self.base().logging
     }
 
+    fn eager_filter_evaluation(&self) -> bool {
+        self.base().eager_filter_evaluation
+    }
+
     fn generate(&self) -> String;
 }
 
 pub trait TargetCodeStandaloneProgGenerator: TargetCodeGenerator {
-    fn new(query: Query, logging: bool, mmap: bool) -> impl TargetCodeStandaloneProgGenerator;
+    fn new(
+        query: Query,
+        logging: bool,
+        mmap: bool,
+        eager_filter_evaluation: bool,
+    ) -> impl TargetCodeStandaloneProgGenerator;
 
     fn base(&self) -> &TargetCodeStandaloneProgGeneratorBase;
 
@@ -33,6 +42,7 @@ pub trait TargetCodeLibGenerator: TargetCodeGenerator {
         filename: String,
         logging: bool,
         bindings: bool,
+        eager_filter_evaluation: bool,
     ) -> impl TargetCodeLibGenerator;
 
     fn base(&self) -> &TargetCodeLibGeneratorBase;
@@ -56,11 +66,12 @@ pub trait BindingsGenerator {
 
 pub struct TargetCodeGeneratorBase {
     logging: bool,
+    eager_filter_evaluation: bool,
 }
 
 impl TargetCodeGeneratorBase {
-    pub fn new(logging: bool) -> TargetCodeGeneratorBase {
-        TargetCodeGeneratorBase { logging }
+    pub fn new(logging: bool, eager_filter_evaluation: bool) -> TargetCodeGeneratorBase {
+        TargetCodeGeneratorBase { logging, eager_filter_evaluation }
     }
 }
 
@@ -71,9 +82,14 @@ pub struct TargetCodeStandaloneProgGeneratorBase {
 }
 
 impl TargetCodeStandaloneProgGeneratorBase {
-    pub fn new(query: Query, logging: bool, mmap: bool) -> TargetCodeStandaloneProgGeneratorBase {
+    pub fn new(
+        query: Query,
+        logging: bool,
+        mmap: bool,
+        eager_filter_evaluation: bool,
+    ) -> TargetCodeStandaloneProgGeneratorBase {
         TargetCodeStandaloneProgGeneratorBase {
-            base: TargetCodeGeneratorBase::new(logging),
+            base: TargetCodeGeneratorBase::new(logging, eager_filter_evaluation),
             mmap,
             query,
         }
@@ -93,9 +109,10 @@ impl TargetCodeLibGeneratorBase {
         filename: String,
         logging: bool,
         bindings: bool,
+        eager_filter_evaluation: bool,
     ) -> TargetCodeLibGeneratorBase {
         TargetCodeLibGeneratorBase {
-            base: TargetCodeGeneratorBase::new(logging),
+            base: TargetCodeGeneratorBase::new(logging, eager_filter_evaluation),
             filename,
             bindings,
             queries: named_queries,

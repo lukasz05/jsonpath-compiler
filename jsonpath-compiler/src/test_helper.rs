@@ -6,15 +6,21 @@ use serde_json::{from_str, Value};
 use uuid::Uuid;
 
 use crate::compiler::StandaloneProgGeneratingCompiler;
-use crate::Target;
 use crate::targets::simdjson::dom::DomCodeStandaloneProgGenerator;
 use crate::targets::simdjson::ondemand::OnDemandCodeStandaloneProgGenerator;
+
+pub enum TestTarget {
+    SimdjsonOndemand,
+    SimdjsonOndemandEagerFilters,
+    SimdjsonDom,
+}
+
 
 pub struct TestHelper {
     query: String,
     document: String,
     expected_result: Value,
-    target: Target,
+    target: TestTarget,
     simdjson_path: String,
     query_code_file_path: String,
     query_prog_file_path: String,
@@ -25,7 +31,7 @@ pub struct TestHelper {
 impl TestHelper {
     const WORKDIR_PATH: &'static str = "/tmp";
 
-    pub fn new(query: &str, document: &str, expected_result: &str, target: Target) -> TestHelper {
+    pub fn new(query: &str, document: &str, expected_result: &str, target: TestTarget) -> TestHelper {
         let tmp_path = Self::random_file_path();
         TestHelper {
             query: query.to_string(),
@@ -64,15 +70,22 @@ impl TestHelper {
     }
 
     fn generate_query_code(&self) {
-        let compiler = StandaloneProgGeneratingCompiler::new();
+        let mut compiler = StandaloneProgGeneratingCompiler::new();
         match self.target {
-            Target::SimdjsonOndemand => {
+            TestTarget::SimdjsonOndemand => {
                 compiler.compile::<OnDemandCodeStandaloneProgGenerator>(
                     &self.query,
                     &self.query_code_file_path,
                 )
             }
-            Target::SimdjsonDom => {
+            TestTarget::SimdjsonOndemandEagerFilters => {
+                compiler = compiler.with_eager_filter_evaluation();
+                compiler.compile::<OnDemandCodeStandaloneProgGenerator>(
+                    &self.query,
+                    &self.query_code_file_path,
+                )
+            }
+            TestTarget::SimdjsonDom => {
                 compiler.compile::<DomCodeStandaloneProgGenerator>(
                     &self.query,
                     &self.query_code_file_path,

@@ -8,8 +8,9 @@ struct subquery_path_segment;
 struct subquery_result;
 struct current_node_data;
 
-vector<selection_condition*> all_selection_conditions;
+vector<selection_condition*> selection_conditions_to_delete;
 vector<filter_instance*> all_filter_instances;
+unordered_map<int, bool> filters_results;
 
 vector<subquery_result *> reached_subqueries_results;
 
@@ -19,6 +20,7 @@ enum subquery_result_type
 };
 
 struct subquery_result {
+    filter_instance* filter;
     string_view str_value;
     int64_t int_value;
     double float_value;
@@ -108,29 +110,32 @@ struct subquery_result {
 };
 
 struct selection_condition {
-    const enum {AND, OR, FILTER} type;
+    const enum {AND, OR, FILTER, ALWAYS_FALSE} type;
     const selection_condition *lhs;
     const selection_condition *rhs;
     const filter_instance *filter;
 
     static selection_condition* new_and(const selection_condition *lhs, const selection_condition *rhs) {
         auto ptr = new selection_condition {AND, lhs, rhs, nullptr};
-        all_selection_conditions.push_back(ptr);
+        selection_conditions_to_delete.push_back(ptr);
         return ptr;
     }
 
     static selection_condition* new_or(const selection_condition *lhs, const selection_condition *rhs) {
         auto ptr = new selection_condition {OR, lhs, rhs, nullptr};
-        all_selection_conditions.push_back(ptr);
+        selection_conditions_to_delete.push_back(ptr);
         return ptr;
     }
 
     static selection_condition* new_filter(const filter_instance *filter) {
         auto ptr = new selection_condition {FILTER, nullptr, nullptr, filter};
-        all_selection_conditions.push_back(ptr);
+        selection_conditions_to_delete.push_back(ptr);
         return ptr;
     }
 };
+
+selection_condition always_false_condition {.type = selection_condition::ALWAYS_FALSE};
+bool segment_condition_value;
 
 struct subquery_path_segment {
     const bool is_name;
@@ -140,17 +145,19 @@ struct subquery_path_segment {
 };
 
 struct filter_instance {
+    int id;
     bool is_active;
     uint8_t filter_segment_index;
     uint8_t filter_selector_index;
     uint8_t subquery_count;
+    uint8_t reached_subquery_count;
     array<subquery_path_segment *, MAX_SUBQUERIES_IN_FILTER> current_subqueries_segments;
     vector<subquery_path_segment *> current_subqueries_segments_backups;
     array<subquery_result, MAX_SUBQUERIES_IN_FILTER> subqueries_results;
     array<bool, MAX_SUBQUERIES_IN_FILTER> is_subquery_existence_test;
 
-    filter_instance(uint8_t segment_index, uint8_t selector_index, uint8_t subquery_count)
-        : filter_segment_index(segment_index), filter_selector_index(selector_index), subquery_count(subquery_count)
+    filter_instance(int id, uint8_t segment_index, uint8_t selector_index, uint8_t subquery_count)
+        : id(id), filter_segment_index(segment_index), filter_selector_index(selector_index), subquery_count(subquery_count)
     {
     }
 
@@ -159,6 +166,8 @@ struct filter_instance {
     }
 
     void restore_current_subqueries_segments() {
+        if (current_subqueries_segments_backups.empty())
+            return;
         copy(current_subqueries_segments_backups.end() - subquery_count, current_subqueries_segments_backups.end(), current_subqueries_segments.begin());
         current_subqueries_segments_backups.resize(current_subqueries_segments_backups.size() - subquery_count);
     }
@@ -206,7 +215,7 @@ typedef bool (*filter_function_ptr)(array<subquery_result, MAX_SUBQUERIES_IN_FIL
 
 {% macro generate_filter_aux_procedures_declarations(query_name) %}
 filter_function_ptr {{query_name}}_get_filter_function(uint8_t filter_segment_index, uint8_t filter_selector_index);
-bool {{query_name}}_evaluate_selection_condition(const selection_condition *condition);
+bool {{query_name}}_try_evaluate_selection_condition(const selection_condition *condition, bool &value);
 {% endmacro %}
 
 {% macro generate_filter_aux_procedures_definitions(query_name, filter_procedures) %}
@@ -218,23 +227,56 @@ filter_function_ptr {{query_name}}_get_filter_function(uint8_t filter_segment_in
     return nullptr;
 }
 
-bool {{query_name}}_evaluate_selection_condition(const selection_condition *condition) {
-    if (condition == nullptr) return true;
+bool {{query_name}}_try_evaluate_selection_condition(const selection_condition *condition, bool &value) {
+    if (condition == nullptr)
+    {
+        value = true;
+        return true;
+    }
     switch (condition->type) {
-        case selection_condition::AND:
+        case selection_condition::AND: {
             if (condition->lhs == nullptr)
-                return {{query_name}}_evaluate_selection_condition(condition->rhs);
+                return {{query_name}}_try_evaluate_selection_condition(condition->rhs, value);
             if (condition->rhs == nullptr)
-                return {{query_name}}_evaluate_selection_condition(condition->lhs);
-            return {{query_name}}_evaluate_selection_condition(condition->lhs) && {{query_name}}_evaluate_selection_condition(condition->rhs);
-        case selection_condition::OR:
+                return {{query_name}}_try_evaluate_selection_condition(condition->lhs, value);
+            bool lhs_value, rhs_value;
+            bool success = {{query_name}}_try_evaluate_selection_condition(condition->lhs, lhs_value) && {{query_name}}_try_evaluate_selection_condition(condition->rhs, rhs_value);
+            value = lhs_value && rhs_value;
+            return success;
+        }
+        case selection_condition::OR: {
             if (condition->lhs == nullptr || condition->rhs == nullptr)
+            {
+                value = true;
                 return true;
-            return {{query_name}}_evaluate_selection_condition(condition->lhs) || {{query_name}}_evaluate_selection_condition(condition->rhs);
-        case selection_condition::FILTER:
+            }
+            bool lhs_value, rhs_value;
+            bool success = {{query_name}}_try_evaluate_selection_condition(condition->lhs, lhs_value) && {{query_name}}_try_evaluate_selection_condition(condition->rhs, rhs_value);
+            value = lhs_value || rhs_value;
+            return success;
+        }
+        case selection_condition::FILTER: {
+            {% if eager_filter_evaluation %}
+            int filter_id = condition->filter->id;
+            if (filters_results.contains(filter_id))
+            {
+                value = filters_results.at(filter_id);
+                return true;
+            }
+            return false;
+            {% else %}
             auto filter_instance = condition->filter;
             auto filter_function = {{query_name}}_get_filter_function(filter_instance->filter_segment_index, filter_instance->filter_selector_index);
-            return filter_function(filter_instance->subqueries_results);
+            value = filter_function(filter_instance->subqueries_results);
+            return true;
+            {% endif %}
+        }
+        case selection_condition::ALWAYS_FALSE: {
+            value = false;
+            return true;
+        }
+        default:
+            return false;
     }
 }
 {% endmacro %}
@@ -245,23 +287,23 @@ bool {{query_name}}_evaluate_selection_condition(const selection_condition *cond
 {% endfor %}
 {% endmacro %}
 
-{% macro generate_traverse_and_save_selected_nodes_procedure(are_any_filters) %}
+{% macro generate_traverse_and_save_selected_nodes_procedure(are_any_filters, eager_filter_evaluation, query_name) %}
 
-void traverse_and_save_selected_nodes(ondemand::value &node, string* result_buf)
+void {{query_name}}_traverse_and_save_selected_nodes(ondemand::value &node, string* result_buf)
 {
     if (result_buf != nullptr)
         *result_buf += node.raw_json().value();
 }
 
 {% if are_any_filters %}
-void traverse_and_save_selected_nodes(ondemand::value &node, string *result_buf,
-                                      vector<filter_instance*> &filter_instances,
+void {{query_name}}_traverse_and_save_selected_nodes(ondemand::value &node, string *result_buf,
+                                      unordered_set<int> &filter_instances_ids,
                                       current_node_data &current_node)
 {
     bool is_member = current_node.is_member;
     bool is_element = current_node.is_element;
     bool _is_scalar = node.is_scalar();
-    {% call compile_update_subqueries_state() %}
+    {% call compile_update_subqueries_state(query_name, eager_filter_evaluation) %}
 
     if (_is_scalar) {
         if (result_buf != nullptr)
@@ -311,19 +353,30 @@ void traverse_and_save_selected_nodes(ondemand::value &node, string *result_buf,
                     default:
                         break;
                 }
+                {% if eager_filter_evaluation %}
+                auto filter_instance = subquery_result->filter;
+                if (++filter_instance->reached_subquery_count == filter_instance->subquery_count)
+                {
+                    auto filter_function = {{query_name}}_get_filter_function(filter_instance->filter_segment_index, filter_instance->filter_selector_index);
+                    bool value = filter_function(filter_instance->subqueries_results);
+                    filters_results.try_emplace(filter_instance->id, value);
+                    filter_instances_ids.erase(filter_instance->id);
+                }
+                {% endif %}
             }
         }
         if (is_member || is_element) {
-            for (int i = 0; i < filter_instances.size(); i++)
-                filter_instances[i]->restore_current_subqueries_segments();
+            for (int filter_instance_id : filter_instances_ids) {
+                all_filter_instances[filter_instance_id]->restore_current_subqueries_segments();
+            }
         }
         return;
     }
 
-    if (result_buf == nullptr && filter_instances.empty())
+    if (result_buf == nullptr && filter_instances_ids.empty())
         return;
 
-    if (result_buf != nullptr && filter_instances.empty()) {
+    if (result_buf != nullptr && filter_instances_ids.empty()) {
         *result_buf += node.raw_json().value();
         return;
     }
@@ -347,7 +400,7 @@ void traverse_and_save_selected_nodes(ondemand::value &node, string *result_buf,
             current_node.is_member = true;
             current_node.is_element = false;
             current_node.key = key;
-            traverse_and_save_selected_nodes(field.value(), result_buf, filter_instances, current_node);
+            {{query_name}}_traverse_and_save_selected_nodes(field.value(), result_buf, filter_instances_ids, current_node);
         }
         if (result_buf != nullptr)
             *result_buf += "}";
@@ -362,9 +415,9 @@ void traverse_and_save_selected_nodes(ondemand::value &node, string *result_buf,
 
 
         size_t array_length = 0;
-        for (int i = 0; i < filter_instances.size(); i++)
+        for (int filter_instance_id : filter_instances_ids)
         {
-            if (filter_instances[i]->is_any_current_subquery_negative_index())
+            if (all_filter_instances[filter_instance_id]->is_any_current_subquery_negative_index())
             {
                 array_length = array.count_elements();
                 break;
@@ -383,24 +436,25 @@ void traverse_and_save_selected_nodes(ondemand::value &node, string *result_buf,
             current_node.is_element = false;
             current_node.array_length = array_length;
             current_node.index = index;
-            traverse_and_save_selected_nodes(element, result_buf, filter_instances, current_node);
+            {{query_name}}_traverse_and_save_selected_nodes(element, result_buf, filter_instances_ids, current_node);
         }
         if (result_buf != nullptr)
             *result_buf += "]";
     }
 
     if (is_member || is_element) {
-        for (int i = 0; i < filter_instances.size(); i++)
-            filter_instances[i]->restore_current_subqueries_segments();
+        for (int filter_instance_id : filter_instances_ids) {
+            all_filter_instances[filter_instance_id]->restore_current_subqueries_segments();
+        }
     }
 }
 {% endif %}
 {% endmacro %}
 
 {% macro compile_start_filter_execution(filter_id, query_name) %}
-auto* f_instance_{{filter_id.segment_index}}_{{filter_id.selector_index}} = new filter_instance({{filter_id.segment_index}}, {{filter_id.selector_index}}, {{filter_subqueries.unwrap().get(filter_id).unwrap().len()}});
+auto* f_instance_{{filter_id.segment_index}}_{{filter_id.selector_index}} = new filter_instance(all_filter_instances.size(), {{filter_id.segment_index}}, {{filter_id.selector_index}}, {{filter_subqueries.unwrap().get(filter_id).unwrap().len()}});
 {% for (subquery_index, subquery) in filter_subqueries.unwrap().get(filter_id).unwrap().into_iter().enumerate() %}
-        f_instance_{{filter_id.segment_index}}_{{filter_id.selector_index}}->subqueries_results[{{subquery_index}}] = {};
+        f_instance_{{filter_id.segment_index}}_{{filter_id.selector_index}}->subqueries_results[{{subquery_index}}] = {.filter = f_instance_{{filter_id.segment_index}}_{{filter_id.selector_index}}};
         f_instance_{{filter_id.segment_index}}_{{filter_id.selector_index}}->current_subqueries_segments[{{subquery_index}}] =
     {% if subquery.segments.is_empty() %}
             nullptr;
@@ -415,18 +469,20 @@ auto* f_instance_{{filter_id.segment_index}}_{{filter_id.selector_index}} = new 
     {% endif %}
     f_instance_{{filter_id.segment_index}}_{{filter_id.selector_index}}->is_subquery_existence_test[{{subquery_index}}] = {{subquery.is_existence_test}};
 {% endfor %}
-filter_instances.push_back(f_instance_{{filter_id.segment_index}}_{{filter_id.selector_index}});
+filter_instances_ids.insert(f_instance_{{filter_id.segment_index}}_{{filter_id.selector_index}}->id);
 all_filter_instances.push_back(f_instance_{{filter_id.segment_index}}_{{filter_id.selector_index}});
+added_filter_instances++;
 {% endmacro %}
 
-{% macro compile_update_subqueries_state() %}
+{% macro compile_update_subqueries_state(query_name, eager_filter_evaluation) %}
 if (current_node.is_member || current_node.is_element) {
-    for (auto f_instance : filter_instances) {
-        f_instance->save_current_subqueries_segments();
+    for (auto filter_instance_id : filter_instances_ids) {
+        filter_instance* f_instance = all_filter_instances[filter_instance_id];
         if (!f_instance->is_active) {
             f_instance->is_active = true;
             continue;
         }
+        f_instance->save_current_subqueries_segments();
         for (size_t i = 0; i < f_instance->subquery_count; i++) {
             auto subquery_segment = f_instance->current_subqueries_segments[i];
             if (subquery_segment == nullptr)
@@ -451,8 +507,18 @@ if (current_node.is_member || current_node.is_element) {
             if (subquery_segment->next == nullptr && !f_instance->subqueries_results[i].exists) {
                 f_instance->subqueries_results[i].exists = true;
                 f_instance->current_subqueries_segments[i] = nullptr;
-                if (f_instance->is_subquery_existence_test[i])
+                if (f_instance->is_subquery_existence_test[i]) {
+                    {% if eager_filter_evaluation %}
+                    if (++f_instance->reached_subquery_count == f_instance->subquery_count)
+                    {
+                        auto filter_function = {{query_name}}_get_filter_function(f_instance->filter_segment_index, f_instance->filter_selector_index);
+                        bool value = filter_function(f_instance->subqueries_results);
+                        filters_results.try_emplace(f_instance->id, value);
+                        //filter_instances_ids.erase(f_instance->id);
+                    }
+                    {% endif %}
                     continue;
+                }
                 if (_is_scalar)
                     reached_subqueries_results.push_back(&f_instance->subqueries_results[i]);
                 else
@@ -460,16 +526,18 @@ if (current_node.is_member || current_node.is_element) {
                 continue;
             }
             f_instance->current_subqueries_segments[i] = const_cast<subquery_path_segment *>(subquery_segment->next);
-
         }
     }
+    {% if eager_filter_evaluation %}
+    erase_if(filter_instances_ids, [](const int id) { return filters_results.contains(id); });
+    {% endif %}
 }
 {% endmacro %}
 
 {% macro generate_procedures_declarations(procedures) %}
 {% for procedure in procedures %}
 {% if procedure.are_any_filters %}
-void {{procedure.query_name}}_{{procedure.name|lower}}(ondemand::value &node, string *result_buf, vector<tuple<string *, size_t, size_t, selection_condition*>> &all_results, selection_condition *segment_conditions[], vector<filter_instance*> &filter_instances, current_node_data &current_node);
+void {{procedure.query_name}}_{{procedure.name|lower}}(ondemand::value &node, string *result_buf, vector<tuple<string *, size_t, size_t, selection_condition*>> &all_results, selection_condition *segment_conditions[], unordered_set<int> &filter_instances_ids, current_node_data &current_node);
 {% else %}
 void {{procedure.query_name}}_{{procedure.name|lower}}(ondemand::value &node, string *result_buf, vector<tuple<string *, size_t, size_t>> &all_results);
 {% endif %}

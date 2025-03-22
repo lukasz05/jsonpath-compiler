@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::string::ToString;
 
 use askama::Template;
-use clang_format::{clang_format_with_style, ClangFormatStyle};
 
 use crate::ir::{
     Comparable, FilterExpression, FilterId, FilterProcedure, FilterSubquery, FilterSubquerySegment,
@@ -18,6 +17,7 @@ use crate::targets::{NamedQuery, TargetCodeGenerator, TargetCodeGeneratorBase,
 struct OnDemandStandaloneProgTemplate<'a> {
     logging: bool,
     mmap: bool,
+    eager_filter_evaluation: bool,
     procedures: Vec<ProcedureTemplate<'a>>,
     filter_procedures: Vec<FilterProcedureTemplate<'a>>,
     filter_subqueries: &'a HashMap<FilterId, Vec<FilterSubquery>>,
@@ -25,10 +25,16 @@ struct OnDemandStandaloneProgTemplate<'a> {
 }
 
 impl OnDemandStandaloneProgTemplate<'_> {
-    fn new(query: &Query, logging: bool, mmap: bool) -> OnDemandStandaloneProgTemplate {
+    fn new(
+        query: &Query,
+        logging: bool,
+        mmap: bool,
+        eager_filter_evaluation: bool,
+    ) -> OnDemandStandaloneProgTemplate {
         OnDemandStandaloneProgTemplate {
             logging,
             mmap,
+            eager_filter_evaluation,
             procedures: query
                 .procedures
                 .iter()
@@ -38,6 +44,7 @@ impl OnDemandStandaloneProgTemplate<'_> {
                         procedure,
                         &query.filter_subqueries,
                         !query.filter_procedures.is_empty(),
+                        eager_filter_evaluation,
                     )
                 })
                 .collect(),
@@ -70,6 +77,7 @@ struct OnDemandLibTemplate<'a> {
     filename: &'a str,
     logging: bool,
     bindings: bool,
+    eager_filter_evaluation: bool,
     procedures: HashMap<String, Vec<ProcedureTemplate<'a>>>,
     filter_procedures: HashMap<String, Vec<FilterProcedureTemplate<'a>>>,
     filter_subqueries: HashMap<String, &'a HashMap<FilterId, Vec<FilterSubquery>>>,
@@ -81,6 +89,7 @@ impl OnDemandLibTemplate<'_> {
         queries: &'a Vec<NamedQuery>,
         logging: bool,
         bindings: bool,
+        eager_filter_evaluation: bool,
         filename: &'a str,
     ) -> OnDemandLibTemplate<'a> {
         let mut procedures = HashMap::new();
@@ -96,6 +105,7 @@ impl OnDemandLibTemplate<'_> {
                             procedure,
                             &query.filter_subqueries,
                             !query.filter_procedures.is_empty(),
+                            eager_filter_evaluation,
                         )
                     })
                     .collect::<Vec<ProcedureTemplate>>(),
@@ -104,6 +114,7 @@ impl OnDemandLibTemplate<'_> {
         OnDemandLibTemplate {
             logging,
             bindings,
+            eager_filter_evaluation,
             filename,
             procedures,
             query_segments_counts: queries
@@ -187,6 +198,7 @@ impl ProcedureTemplate<'_> {
         procedure: &'a Procedure,
         filter_subqueries: &'a HashMap<FilterId, Vec<FilterSubquery>>,
         are_any_filters: bool,
+        eager_filter_evaluation: bool,
     ) -> ProcedureTemplate<'a> {
         ProcedureTemplate {
             query_name: query_name.to_string(),
@@ -201,6 +213,7 @@ impl ProcedureTemplate<'_> {
                         query_name,
                         Some(filter_subqueries),
                         are_any_filters,
+                        eager_filter_evaluation,
                     )
                 })
                 .collect(),
@@ -229,6 +242,7 @@ struct InstructionTemplate<'a> {
     current_node: &'a str,
     filter_subqueries: Option<&'a HashMap<FilterId, Vec<FilterSubquery>>>,
     are_any_filters: bool,
+    eager_filter_evaluation: bool,
 }
 
 impl InstructionTemplate<'_> {
@@ -238,6 +252,7 @@ impl InstructionTemplate<'_> {
         query_name: &'a str,
         filter_subqueries: Option<&'a HashMap<FilterId, Vec<FilterSubquery>>>,
         are_any_filters: bool,
+        eager_filter_evaluation: bool,
     ) -> InstructionTemplate<'a> {
         InstructionTemplate {
             instruction,
@@ -245,6 +260,7 @@ impl InstructionTemplate<'_> {
             query_name,
             filter_subqueries,
             are_any_filters,
+            eager_filter_evaluation,
         }
     }
 }
@@ -310,6 +326,7 @@ impl TargetCodeGenerator for OnDemandCodeStandaloneProgGenerator {
             self.query(),
             self.logging(),
             self.mmap(),
+            self.eager_filter_evaluation(),
         );
         let code = template.render().unwrap();
         //clang_format_with_style(&code, &ClangFormatStyle::Microsoft).unwrap()
@@ -318,9 +335,19 @@ impl TargetCodeGenerator for OnDemandCodeStandaloneProgGenerator {
 }
 
 impl TargetCodeStandaloneProgGenerator for OnDemandCodeStandaloneProgGenerator {
-    fn new(query: Query, logging: bool, mmap: bool) -> impl TargetCodeStandaloneProgGenerator {
+    fn new(
+        query: Query,
+        logging: bool,
+        mmap: bool,
+        eager_filter_evaluation: bool,
+    ) -> impl TargetCodeStandaloneProgGenerator {
         OnDemandCodeStandaloneProgGenerator {
-            base: TargetCodeStandaloneProgGeneratorBase::new(query, logging, mmap)
+            base: TargetCodeStandaloneProgGeneratorBase::new(
+                query,
+                logging,
+                mmap,
+                eager_filter_evaluation,
+            )
         }
     }
 
@@ -343,10 +370,12 @@ impl TargetCodeGenerator for OnDemandCodeLibGenerator {
             self.queries(),
             self.logging(),
             self.bindings(),
+            self.eager_filter_evaluation(),
             self.filename(),
         );
         let code = template.render().unwrap();
-        clang_format_with_style(&code, &ClangFormatStyle::Microsoft).unwrap()
+        //clang_format_with_style(&code, &ClangFormatStyle::Microsoft).unwrap()
+        code
     }
 }
 
@@ -356,6 +385,7 @@ impl TargetCodeLibGenerator for OnDemandCodeLibGenerator {
         filename: String,
         logging: bool,
         bindings: bool,
+        eager_filter_evaluation: bool,
     ) -> impl TargetCodeLibGenerator {
         OnDemandCodeLibGenerator {
             base: TargetCodeLibGeneratorBase::new(
@@ -363,6 +393,7 @@ impl TargetCodeLibGenerator for OnDemandCodeLibGenerator {
                 filename,
                 logging,
                 bindings,
+                eager_filter_evaluation,
             )
         }
     }
@@ -380,6 +411,7 @@ static EMPTY_OBJECT_ITERATION: InstructionTemplate = InstructionTemplate {
     query_name: "",
     filter_subqueries: None,
     are_any_filters: false,
+    eager_filter_evaluation: false,
 };
 static EMPTY_ARRAY_ITERATION: InstructionTemplate = InstructionTemplate {
     instruction: &ForEachElement {
@@ -389,4 +421,5 @@ static EMPTY_ARRAY_ITERATION: InstructionTemplate = InstructionTemplate {
     query_name: "",
     filter_subqueries: None,
     are_any_filters: false,
+    eager_filter_evaluation: false,
 };

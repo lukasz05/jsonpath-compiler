@@ -2,7 +2,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use jsonpath_compiler::compiler::{CompilationError, LibGeneratingCompiler, StandaloneProgGeneratingCompiler, QueriesSource};
+use jsonpath_compiler::compiler::{CompilationError, LibGeneratingCompiler, QueriesSource, StandaloneProgGeneratingCompiler};
 use jsonpath_compiler::Target;
 use jsonpath_compiler::targets::simdjson::dom::{DomCodeLibGenerator, DomCodeStandaloneProgGenerator};
 use jsonpath_compiler::targets::simdjson::ondemand::{OnDemandCodeLibGenerator, OnDemandCodeStandaloneProgGenerator};
@@ -37,6 +37,9 @@ pub struct Args {
     #[arg(long, action = clap::ArgAction::SetTrue)]
     pub logging: bool,
 
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    pub eager_filter_evaluation: bool,
+
     // File in which to place Rust bindings for query procedures.
     #[arg(long, action)]
     pub rust_bindings: Option<String>,
@@ -52,6 +55,9 @@ fn main() -> Result<ExitCode, CompilationError> {
         }
         if args.mmap {
             compiler = compiler.with_mmap();
+        }
+        if args.eager_filter_evaluation {
+            compiler = compiler.with_eager_filter_evaluation()
         }
         if let Some(ir_output_file_path) = args.ir_output {
             compiler = compiler.write_ir_to_file(&ir_output_file_path);
@@ -71,6 +77,9 @@ fn main() -> Result<ExitCode, CompilationError> {
             compiler = compiler.add_bindings_generator(
                 RustBindingsGenerator::new(&bindings_file_path)
             );
+        }
+        if args.eager_filter_evaluation {
+            compiler = compiler.with_eager_filter_evaluation()
         }
         match args.target {
             Target::SimdjsonOndemand => {

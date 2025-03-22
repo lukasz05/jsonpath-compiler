@@ -1,7 +1,6 @@
 use paste::paste;
 
-use jsonpath_compiler::Target;
-use jsonpath_compiler::test_helper::TestHelper;
+use jsonpath_compiler::test_helper::{TestHelper, TestTarget};
 
 macro_rules! additional {
     ($target:ident) => {
@@ -12,7 +11,7 @@ macro_rules! additional {
                     r#"$..a[*]"#,
                     r#"[{"a": {"a": {"b": 1}, "c": 2, "d": 3}}]"#,
                     r#"[{"b": 1}, 1, 2, 3]"#,
-                    Target::SimdjsonOndemand,
+                    TestTarget::$target,
                 ).run()
             }
 
@@ -22,7 +21,7 @@ macro_rules! additional {
                     r#"$..[0][*]"#,
                     r#"[[[1], 2, 3]]"#,
                     r#"[[1], 1, 2, 3]"#,
-                    Target::SimdjsonOndemand,
+                    TestTarget::$target,
                 ).run()
             }
 
@@ -32,7 +31,7 @@ macro_rules! additional {
                     r#"$..[-1][*]"#,
                     r#"[[1, 2, [3]]]"#,
                     r#"[1, 2, [3], 3]"#,
-                    Target::SimdjsonOndemand,
+                    TestTarget::$target,
                 ).run()
             }
         }
@@ -40,4 +39,5 @@ macro_rules! additional {
 }
 
 additional!(SimdjsonOndemand);
+additional!(SimdjsonOndemandEagerFilters);
 additional!(SimdjsonDom);

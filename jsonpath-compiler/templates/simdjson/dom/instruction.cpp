@@ -33,7 +33,7 @@
         continue;
     {% when Instruction::TraverseCurrentNodeSubtree %}
     {% when Instruction::StartFilterExecution with { filter_id} %}
-    {% when Instruction::EndFilterExecution %}
+    {% when Instruction::EndFiltersExecution %}
     {% when Instruction::UpdateSubqueriesState %}
 {% endmatch %}
 

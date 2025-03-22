@@ -156,9 +156,19 @@ impl TargetCodeGenerator for DomCodeStandaloneProgGenerator {
 }
 
 impl TargetCodeStandaloneProgGenerator for DomCodeStandaloneProgGenerator {
-    fn new(query: Query, logging: bool, mmap: bool) -> impl TargetCodeStandaloneProgGenerator {
+    fn new(
+        query: Query,
+        logging: bool,
+        mmap: bool,
+        eager_filter_evaluation: bool,
+    ) -> impl TargetCodeStandaloneProgGenerator {
         DomCodeStandaloneProgGenerator {
-            base: TargetCodeStandaloneProgGeneratorBase::new(query, logging, mmap)
+            base: TargetCodeStandaloneProgGeneratorBase::new(
+                query,
+                logging,
+                mmap,
+                eager_filter_evaluation,
+            )
         }
     }
 
@@ -194,6 +204,7 @@ impl TargetCodeLibGenerator for DomCodeLibGenerator {
         filename: String,
         logging: bool,
         bindings: bool,
+        eager_filter_evaluation: bool,
     ) -> impl TargetCodeLibGenerator {
         DomCodeLibGenerator {
             base: TargetCodeLibGeneratorBase::new(
@@ -201,6 +212,7 @@ impl TargetCodeLibGenerator for DomCodeLibGenerator {
                 filename,
                 logging,
                 bindings,
+                eager_filter_evaluation,
             )
         }
     }

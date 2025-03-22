@@ -55,7 +55,7 @@ pub enum Instruction {
     StartFilterExecution {
         filter_id: FilterId,
     },
-    EndFilterExecution,
+    EndFiltersExecution,
     UpdateSubqueriesState,
 }
 

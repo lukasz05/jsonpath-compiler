@@ -60,7 +60,8 @@ impl CompilerHelper {
 pub struct StandaloneProgGeneratingCompiler {
     logging: bool,
     mmap: bool,
-    ir_output_file_path: Option<String>
+    eager_filter_evaluation: bool,
+    ir_output_file_path: Option<String>,
 }
 
 impl StandaloneProgGeneratingCompiler {
@@ -68,7 +69,8 @@ impl StandaloneProgGeneratingCompiler {
         StandaloneProgGeneratingCompiler {
             logging: false,
             mmap: false,
-            ir_output_file_path: None
+            eager_filter_evaluation: false,
+            ir_output_file_path: None,
         }
     }
 
@@ -82,6 +84,13 @@ impl StandaloneProgGeneratingCompiler {
     pub fn with_mmap(self) -> StandaloneProgGeneratingCompiler {
         StandaloneProgGeneratingCompiler {
             mmap: true,
+            ..self
+        }
+    }
+
+    pub fn with_eager_filter_evaluation(self) -> StandaloneProgGeneratingCompiler {
+        StandaloneProgGeneratingCompiler {
+            eager_filter_evaluation: true,
             ..self
         }
     }
@@ -107,7 +116,8 @@ impl StandaloneProgGeneratingCompiler {
         let target_code_generator = T::new(
             query_ir,
             self.logging,
-            self.mmap
+            self.mmap,
+            self.eager_filter_evaluation,
         );
         let target_code = target_code_generator.generate();
         CompilerHelper::write_to_file(output_file_path, target_code)
@@ -117,6 +127,7 @@ impl StandaloneProgGeneratingCompiler {
 
 pub struct LibGeneratingCompiler {
     logging: bool,
+    eager_filter_evaluation: bool,
     bindings_generator: Option<Box<dyn BindingsGenerator>>,
     ir_output_file_path: Option<String>,
 }
@@ -125,6 +136,7 @@ impl LibGeneratingCompiler {
     pub fn new() -> LibGeneratingCompiler {
         LibGeneratingCompiler {
             logging: false,
+            eager_filter_evaluation: false,
             bindings_generator: None,
             ir_output_file_path: None,
         }
@@ -140,6 +152,13 @@ impl LibGeneratingCompiler {
     pub fn with_logging(self) -> LibGeneratingCompiler {
         LibGeneratingCompiler {
             logging: true,
+            ..self
+        }
+    }
+
+    pub fn with_eager_filter_evaluation(self) -> LibGeneratingCompiler {
+        LibGeneratingCompiler {
+            eager_filter_evaluation: true,
             ..self
         }
     }
@@ -178,6 +197,7 @@ impl LibGeneratingCompiler {
             filename,
             self.logging,
             bindings,
+            self.eager_filter_evaluation,
         );
         let target_code = target_code_generator.generate();
         CompilerHelper::write_to_file(output_file_path, target_code)?;

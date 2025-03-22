@@ -12,6 +12,7 @@
 #include <vector>
 #include <queue>
 #include <set>
+#include <unordered_set>
 #include <string>
 #include <algorithm>
 #include <fcntl.h>
@@ -35,6 +36,9 @@ constexpr uint8_t {{query_name}}_SEGMENT_COUNT = {{Self::query_segments_count(se
 {% if Self::are_any_filters_in_query(self, query_name) %}
 {% call common::generate_filter_aux_structures_instances(Self::query_filter_subqueries(self, query_name), query_name.to_string()) %}
 {% endif %}
+
+{% call common::generate_traverse_and_save_selected_nodes_procedure(Self::are_any_filters_in_query(self, query_name), eager_filter_evaluation, query_name) %}
+
 {% endfor %}
 {% endif %}
 
@@ -54,10 +58,10 @@ string {{query_name}}(const char* padded_input, size_t length)
     ondemand::value root_node = doc.get_value().value();
     {% if Self::are_any_filters_in_query(self, query_name) %}
     vector<tuple<string *, size_t, size_t, selection_condition*>> all_results;
-    vector<filter_instance*> filter_instances;
+    unordered_set<int> filter_instances_ids;
     selection_condition *segment_conditions[{{query_name}}_SEGMENT_COUNT] = {};
     current_node_data current_node {false, false, 0, 0, {}};
-    {{query_name}}_selectors_0(root_node, nullptr, all_results, segment_conditions, filter_instances, current_node);
+    {{query_name}}_selectors_0(root_node, nullptr, all_results, segment_conditions, filter_instances_ids, current_node);
     {% else %}
     vector<tuple<string *, size_t, size_t>> all_results;
     {{query_name}}_selectors_0(root_node, nullptr, all_results);
@@ -73,7 +77,9 @@ string {{query_name}}(const char* padded_input, size_t length)
     {% endif %}
     {
         {% if Self::are_any_filters_in_query(self, query_name) %}
-        if ({{query_name}}_evaluate_selection_condition(selection_condition))
+        bool condition_value;
+        {{query_name}}_try_evaluate_selection_condition(selection_condition, condition_value);
+        if (condition_value)
         {
         {% endif %}
         if (!first)
@@ -94,10 +100,10 @@ string {{query_name}}(const char* padded_input, size_t length)
     {% if Self::are_any_filters_in_query(self, query_name) %}
     for (auto filter_instance : all_filter_instances)
         delete filter_instance;
-    for (auto selection_condition : all_selection_conditions)
+    for (auto selection_condition : selection_conditions_to_delete)
         delete selection_condition;
     all_filter_instances.clear();
-    all_selection_conditions.clear();
+    selection_conditions_to_delete.clear();
     {% endif %}
     return result;
 }
@@ -120,7 +126,6 @@ extern "C" const char* {{query_name}}_binding(const char* padded_input, size_t i
 {% call common::generate_filter_aux_procedures_definitions(query_name, filter_procedures) %}
 {% endfor %}
 
-{% call common::generate_traverse_and_save_selected_nodes_procedure(Self::are_any_filters(self)) %}
 
 {% for procedure in Self::all_procedures(self) %}
     {{ procedure.render().unwrap() }}
