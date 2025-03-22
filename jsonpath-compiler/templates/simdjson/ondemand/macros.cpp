@@ -235,14 +235,35 @@
         }
         switch (condition->type) {
             case selection_condition::AND: {
+                if (condition->lhs == nullptr && condition->rhs == nullptr)
+                {
+                    value = true;
+                    return true;
+                }
                 if (condition->lhs == nullptr)
                     return {{query_name}}_try_evaluate_selection_condition(condition->rhs, value);
                 if (condition->rhs == nullptr)
                     return {{query_name}}_try_evaluate_selection_condition(condition->lhs, value);
-                bool lhs_value, rhs_value;
-                bool success = {{query_name}}_try_evaluate_selection_condition(condition->lhs, lhs_value) && {{query_name}}_try_evaluate_selection_condition(condition->rhs, rhs_value);
-                value = lhs_value && rhs_value;
-                return success;
+                bool lhs_value;
+                bool lhs_success = {{query_name}}_try_evaluate_selection_condition(condition->lhs, lhs_value);
+                if (lhs_success && !lhs_value)
+                {
+                    value = false;
+                    return true;
+                }
+                bool rhs_value;
+                bool rhs_success = {{query_name}}_try_evaluate_selection_condition(condition->rhs, rhs_value);
+                if (rhs_success && !rhs_value)
+                {
+                    value = false;
+                    return true;
+                }
+                if (rhs_success && lhs_success)
+                {
+                    value = true;
+                    return true;
+                }
+                return false;
             }
             case selection_condition::OR: {
                 if (condition->lhs == nullptr || condition->rhs == nullptr)
@@ -250,10 +271,26 @@
                     value = true;
                     return true;
                 }
-                bool lhs_value, rhs_value;
-                bool success = {{query_name}}_try_evaluate_selection_condition(condition->lhs, lhs_value) && {{query_name}}_try_evaluate_selection_condition(condition->rhs, rhs_value);
-                value = lhs_value || rhs_value;
-                return success;
+                bool lhs_value;
+                bool lhs_success = {{query_name}}_try_evaluate_selection_condition(condition->lhs, lhs_value);
+                if (lhs_success && lhs_value)
+                {
+                    value = true;
+                    return true;
+                }
+                bool rhs_value;
+                bool rhs_success = {{query_name}}_try_evaluate_selection_condition(condition->rhs, rhs_value);
+                if (rhs_success && rhs_value)
+                {
+                    value = true;
+                    return true;
+                }
+                if (rhs_success & lhs_success)
+                {
+                    value = false;
+                    return true;
+                }
+                return false;
             }
             case selection_condition::FILTER: {
                 {%- if eager_filter_evaluation -%}
@@ -511,7 +548,6 @@
                             auto filter_function = {{query_name}}_get_filter_function(f_instance->filter_segment_index, f_instance->filter_selector_index);
                             bool value = filter_function(f_instance->subqueries_results);
                             filters_results.try_emplace(f_instance->id, value);
-                            //filter_instances_ids.erase(f_instance->id);
                         }
                         {%- endif -%}
                         continue;
