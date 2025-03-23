@@ -103,6 +103,8 @@ using namespace simdjson;
             for (auto selection_condition : selection_conditions_to_delete)
                 delete selection_condition;
             all_filter_instances.clear();
+            filters_results.clear();
+            reached_subqueries_results.clear();
             selection_conditions_to_delete.clear();
         {%- endif -%}
         return result;

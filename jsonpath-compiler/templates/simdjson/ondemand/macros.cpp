@@ -389,16 +389,17 @@
                             default:
                                 break;
                         }
-                        {%- if eager_filter_evaluation -%}
-                            auto filter_instance = subquery_result->filter;
-                            if (++filter_instance->reached_subquery_count == filter_instance->subquery_count)
-                            {
+
+                        auto filter_instance = subquery_result->filter;
+                        if (++filter_instance->reached_subquery_count == filter_instance->subquery_count)
+                        {
+                            {%- if eager_filter_evaluation -%}
                                 auto filter_function = {{query_name}}_get_filter_function(filter_instance->filter_segment_index, filter_instance->filter_selector_index);
                                 bool value = filter_function(filter_instance->subqueries_results);
                                 filters_results.try_emplace(filter_instance->id, value);
-                                filter_instances_ids.erase(filter_instance->id);
-                            }
-                        {%- endif -%}
+                            {%- endif -%}
+                            filter_instances_ids.erase(filter_instance->id);
+                        }
                     }
                 }
                 if (is_member || is_element) {
@@ -542,8 +543,9 @@
                     f_instance->subqueries_results[i].exists = true;
                     f_instance->current_subqueries_segments[i] = nullptr;
                     if (f_instance->is_subquery_existence_test[i]) {
+                        f_instance->reached_subquery_count++;
                         {%- if eager_filter_evaluation -%}
-                        if (++f_instance->reached_subquery_count == f_instance->subquery_count)
+                        if (f_instance->reached_subquery_count == f_instance->subquery_count)
                         {
                             auto filter_function = {{query_name}}_get_filter_function(f_instance->filter_segment_index, f_instance->filter_selector_index);
                             bool value = filter_function(f_instance->subqueries_results);
@@ -561,9 +563,10 @@
                 f_instance->current_subqueries_segments[i] = const_cast<subquery_path_segment *>(subquery_segment->next);
             }
         }
-        {%- if eager_filter_evaluation -%}
-            erase_if(filter_instances_ids, [](const int id) { return filters_results.contains(id); });
-        {%- endif -%}
+        erase_if(filter_instances_ids, [](const int id) {
+            auto f_instance = all_filter_instances[id];
+            return f_instance->reached_subquery_count == f_instance->subquery_count;
+        });
     }
 {%- endmacro -%}
 
