@@ -157,7 +157,9 @@
         array<bool, MAX_SUBQUERIES_IN_FILTER> is_subquery_existence_test;
 
         filter_instance(int id, uint8_t segment_index, uint8_t selector_index, uint8_t subquery_count)
-            : id(id), filter_segment_index(segment_index), filter_selector_index(selector_index), subquery_count(subquery_count)
+            : id(id), is_active(false), filter_segment_index(segment_index), filter_selector_index(selector_index),
+              subquery_count(subquery_count), reached_subquery_count(0), current_subqueries_segments{},
+              subqueries_results{}, is_subquery_existence_test{}
         {
         }
 
