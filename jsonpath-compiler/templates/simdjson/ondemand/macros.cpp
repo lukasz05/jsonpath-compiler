@@ -8,11 +8,11 @@
     struct subquery_result;
     struct current_node_data;
 
-    vector<selection_condition*> selection_conditions_to_delete;
-    vector<filter_instance*> all_filter_instances;
-    unordered_map<int, bool> filters_results;
+    static vector<selection_condition*> selection_conditions_to_delete;
+    static vector<filter_instance*> all_filter_instances;
+    static unordered_map<int, bool> filters_results;
 
-    vector<subquery_result *> reached_subqueries_results;
+    static vector<subquery_result *> reached_subqueries_results;
 
     enum subquery_result_type
     {
@@ -134,8 +134,8 @@
         }
     };
 
-    selection_condition always_false_condition {.type = selection_condition::ALWAYS_FALSE};
-    bool segment_condition_value;
+    static selection_condition always_false_condition {.type = selection_condition::ALWAYS_FALSE};
+    static bool segment_condition_value;
 
     struct subquery_path_segment {
         const bool is_name;
