@@ -19,7 +19,7 @@
             {%- call compile_instructions(instructions, current_node) -%}
         }
     {%- when Instruction::IfActiveFilterInstance with { instructions } -%}
-    {%- when Instruction::ExecuteProcedureOnChild with { conditions, name } -%}
+    {%- when Instruction::ExecuteProcedureOnChild with { conditions, segments, name } -%}
         {%- if !query_name.is_empty() -%}
             {{query_name}}_{{name|lower}}({{current_node}}, all_results);
         {%- else -%}

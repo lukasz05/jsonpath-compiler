@@ -44,6 +44,7 @@ pub enum Instruction {
     },
     ExecuteProcedureOnChild {
         conditions: Vec<Option<SelectionCondition>>,
+        segments: Vec<SegmentIndex>,
         name: String,
     },
     SaveCurrentNodeDuringTraversal {

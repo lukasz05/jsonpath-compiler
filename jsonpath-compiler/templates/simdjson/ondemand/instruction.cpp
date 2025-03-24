@@ -27,7 +27,7 @@
                 {%- call compile_instructions(instructions, current_node) -%}
             }
         {%- endif -%}
-    {%- when Instruction::ExecuteProcedureOnChild with { conditions, name } -%}
+    {%- when Instruction::ExecuteProcedureOnChild with { conditions, segments, name } -%}
         {%- if are_any_filters -%}
             selection_condition* new_segment_conditions[{{query_name}}_SEGMENT_COUNT] = {};
             {%- if eager_filter_evaluation -%}
@@ -49,7 +49,7 @@
                             new_segment_conditions[{{i}}] = segment_conditions[{{i-1}}];
                     {%- endif -%}
                 {%- endif -%}
-                {%- if eager_filter_evaluation -%}
+                {%- if eager_filter_evaluation && segments.contains(i) -%}
                     if ({{query_name}}_try_evaluate_selection_condition(new_segment_conditions[{{i}}], segment_condition_value))
                     {
                         if (segment_condition_value)

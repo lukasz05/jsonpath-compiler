@@ -443,6 +443,7 @@ impl IRGenerator<'_> {
             let procedure_name = self.get_or_create_procedure_for_segments(&descendants_segments);
             instructions.push(ExecuteProcedureOnChild {
                 name: procedure_name,
+                segments: descendants_segments.segments(),
                 conditions: vec![None; descendants_segments.segments().len()],
             });
             instructions.push(Continue);
@@ -469,6 +470,7 @@ impl IRGenerator<'_> {
                 Self::wrap_in_save_current_node_during_traversal_conditionally(
                     ExecuteProcedureOnChild {
                         name: procedure_name,
+                        segments: procedure_segments.segments(),
                         conditions: segments_selection_conditions,
                     },
                     node_selected,
