@@ -101,14 +101,29 @@
                     if ({{query_name}}_try_evaluate_selection_condition(condition, condition_value))
                     {
                         if (condition_value)
+                        {
+                            {% if eager_filter_evaluation %}
+                                result_in_progress_conditions.push_back(&always_true_condition);
+                            {% endif %}
                             all_results.emplace_back(result_buf, result_buf->size(), 0, nullptr);
+                        }
+                        else
+                            result_in_progress_conditions.push_back(&always_false_condition);
                     }
                     else
+                    {
+                        {% if eager_filter_evaluation %}
+                            result_in_progress_conditions.push_back(condition);
+                        {% endif %}
                         all_results.emplace_back(result_buf, result_buf->size(), 0, condition);
+                    }
                 {%- else -%}
                     all_results.emplace_back(result_buf, result_buf->size(), 0, {{ template.render().unwrap() }});
                 {%- endif -%}
             {%- else -%}
+                {% if eager_filter_evaluation %}
+                    result_in_progress_conditions.push_back(&always_true_condition);
+                {% endif %}
                 all_results.emplace_back(result_buf, result_buf->size(), 0, nullptr);
             {%- endif -%}
         {%- else -%}
@@ -116,6 +131,9 @@
         {%- endif -%}
         {%- let template = InstructionTemplate::new(instruction, current_node, query_name, filter_subqueries.to_owned(), are_any_filters.clone(), eager_filter_evaluation.clone()) -%}
         {{ template.render().unwrap() }}
+        {% if are_any_filters && eager_filter_evaluation %}
+            result_in_progress_conditions.pop_back();
+        {% endif %}
         if (result_i < all_results.size())
             get<2>(all_results[result_i]) = result_buf->size();
     {%- when Instruction::Continue -%}

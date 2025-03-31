@@ -14,6 +14,8 @@
 
     static vector<subquery_result *> reached_subqueries_results;
 
+    static vector<selection_condition*> result_in_progress_conditions;
+
     enum subquery_result_type
     {
      NOTHING, STRING, INT, FLOAT, BOOL, __NULL, COMPLEX
@@ -135,6 +137,7 @@
     };
 
     static selection_condition always_false_condition {.type = selection_condition::ALWAYS_FALSE};
+    static selection_condition always_true_condition {.type = selection_condition::ALWAYS_TRUE};
     static bool segment_condition_value;
 
     struct subquery_path_segment {
@@ -366,6 +369,16 @@
     }
 
     {%- if are_any_filters -%}
+        {% if eager_filter_evaluation %}
+            bool check_result_in_progress_conditions() {
+                bool condition_value;
+                for (auto condition : result_in_progress_conditions)
+                    if (!_try_evaluate_selection_condition(condition, condition_value) || condition_value)
+                        return true;
+                return false;
+            }
+        {% endif %}
+
         void {{query_name}}_traverse_and_save_selected_nodes(ondemand::value &node, string *result_buf,
                                               unordered_set<int> &filter_instances_ids,
                                               current_node_data &current_node)
@@ -375,10 +388,9 @@
             bool _is_scalar = node.is_scalar();
             {%- call compile_update_subqueries_state(query_name, eager_filter_evaluation) -%}
 
-            if (_is_scalar) {
-                if (result_buf != nullptr)
-                    *result_buf += node.raw_json().value();
+            bool is_result_saving_in_progress = result_buf != nullptr;
 
+            if (_is_scalar) {
                 if (!reached_subqueries_results.empty()) {
                     string_view str_value;
                     int64_t int_value;
@@ -436,6 +448,13 @@
                         }
                     }
                 }
+
+                {% if eager_filter_evaluation %}
+                    is_result_saving_in_progress &= check_result_in_progress_conditions();
+                {% endif %}
+                if (is_result_saving_in_progress)
+                    *result_buf += node.raw_json().value();
+
                 if (is_member || is_element) {
                     for (int filter_instance_id : filter_instances_ids) {
                         all_filter_instances[filter_instance_id]->restore_current_subqueries_segments();
@@ -444,22 +463,24 @@
                 return;
             }
 
-            if (result_buf == nullptr && filter_instances_ids.empty())
+            {% if eager_filter_evaluation %}
+                is_result_saving_in_progress &= check_result_in_progress_conditions();
+            {% endif %}
+            if (!is_result_saving_in_progress && filter_instances_ids.empty())
                 return;
-
-            if (result_buf != nullptr && filter_instances_ids.empty()) {
+            if (is_result_saving_in_progress && filter_instances_ids.empty()) {
                 *result_buf += node.raw_json().value();
                 return;
             }
 
             ondemand::object object;
             if (!node.get_object().get(object)) {
-                if (result_buf != nullptr)
+                if (is_result_saving_in_progress)
                     *result_buf += "{";
                 bool first = true;
                 for (ondemand::field field : object) {
                     string_view key = field.unescaped_key();
-                    if (result_buf != nullptr)
+                    if (is_result_saving_in_progress)
                     {
                         if (!first)
                             *result_buf += ", ";
@@ -473,13 +494,13 @@
                     current_node.key = key;
                     {{query_name}}_traverse_and_save_selected_nodes(field.value(), result_buf, filter_instances_ids, current_node);
                 }
-                if (result_buf != nullptr)
+                if (is_result_saving_in_progress)
                     *result_buf += "}";
             }
 
             ondemand::array array;
             if (!node.get_array().get(array)) {
-                if (result_buf != nullptr)
+                if (is_result_saving_in_progress)
                     *result_buf += "[";
                 bool first = true;
                 size_t index = 0;
@@ -497,7 +518,7 @@
                     if (!first)
                     {
                         index++;
-                        if (result_buf != nullptr)
+                        if (is_result_saving_in_progress)
                             *result_buf += ", ";
                     }
                     first = false;
@@ -507,7 +528,7 @@
                     current_node.index = index;
                     {{query_name}}_traverse_and_save_selected_nodes(element, result_buf, filter_instances_ids, current_node);
                 }
-                if (result_buf != nullptr)
+                if (is_result_saving_in_progress)
                     *result_buf += "]";
             }
 
