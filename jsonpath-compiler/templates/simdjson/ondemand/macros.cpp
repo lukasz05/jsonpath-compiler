@@ -362,12 +362,6 @@
 {%- endmacro -%}
 
 {%- macro generate_traverse_and_save_selected_nodes_procedure(are_any_filters, eager_filter_evaluation, query_name) -%}
-    void {{query_name}}_traverse_and_save_selected_nodes(ondemand::value &node, string* result_buf)
-    {
-        if (result_buf != nullptr)
-            *result_buf += node.raw_json().value();
-    }
-
     {%- if are_any_filters -%}
         {% if eager_filter_evaluation %}
             bool check_result_in_progress_conditions() {
@@ -538,7 +532,14 @@
                 }
             }
         }
-    {%- endif -%}
+    {%- else -%}
+        void {{query_name}}_traverse_and_save_selected_nodes(ondemand::value &node, string* result_buf)
+        {
+            bool is_result_saving_in_progress = result_buf != nullptr;
+            if (is_result_saving_in_progress)
+                *result_buf += node.raw_json().value();
+        }
+    {% endif %}
 {%- endmacro -%}
 
 {%- macro compile_start_filter_execution(filter_id, query_name) -%}

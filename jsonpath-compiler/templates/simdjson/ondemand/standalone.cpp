@@ -64,7 +64,7 @@ int main(int argc, char **argv)
     {%- endif -%}
     cout << "[\n";
     bool first = true;
-    string *prev_ptr = nullptr;
+    unordered_set<string*> bufs_to_free;
     {%- if Self::are_any_filters(self) -%}
         for (const auto &[buf_ptr, start, end, selection_condition] : all_results)
     {%- else -%}
@@ -84,13 +84,11 @@ int main(int argc, char **argv)
         {%- if Self::are_any_filters(self) -%}
             }
         {%- endif -%}
-        if (prev_ptr != nullptr && buf_ptr != prev_ptr)
-            delete prev_ptr;
-        prev_ptr = buf_ptr;
+        bufs_to_free.insert(buf_ptr);
     }
-    if (prev_ptr != nullptr)
-        delete prev_ptr;
     cout << "]\n";
+    for (auto buf_ptr : bufs_to_free)
+        delete buf_ptr;
     {%- if Self::are_any_filters(self) -%}
         for (auto filter_instance : all_filter_instances)
             delete filter_instance;

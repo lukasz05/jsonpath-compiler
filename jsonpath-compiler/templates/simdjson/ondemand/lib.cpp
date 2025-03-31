@@ -70,7 +70,7 @@ using namespace simdjson;
         string result;
         bool first = true;
         result += "[\n";
-        string *prev_ptr = nullptr;
+        unordered_set<string*> bufs_to_free;
         {%- if Self::are_any_filters_in_query(self, query_name) -%}
             for (const auto &[buf_ptr, start, end, selection_condition] : all_results)
         {%- else -%}
@@ -91,13 +91,11 @@ using namespace simdjson;
             {%- if Self::are_any_filters_in_query(self, query_name) -%}
                 }
             {%- endif -%}
-            if (prev_ptr != nullptr && buf_ptr != prev_ptr)
-                delete prev_ptr;
-            prev_ptr = buf_ptr;
+            bufs_to_free.insert(buf_ptr);
         }
-        if (prev_ptr != nullptr)
-            delete prev_ptr;
         result += "]\n";
+        for (auto buf_ptr : bufs_to_free)
+            delete buf_ptr;
         {%- if Self::are_any_filters_in_query(self, query_name) -%}
             for (auto filter_instance : all_filter_instances)
                 delete filter_instance;

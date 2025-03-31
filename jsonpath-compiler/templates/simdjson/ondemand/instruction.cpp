@@ -92,6 +92,7 @@
         if (result_buf == nullptr)
             result_buf = new string();
         size_t result_i = all_results.size();
+        size_t buf_start_pos = result_buf->size();
         {%- if are_any_filters -%}
             {%- if let Some(condition) = condition -%}
                 {%- let template = SelectionConditionTemplate::new(condition) -%}
@@ -132,10 +133,17 @@
         {%- let template = InstructionTemplate::new(instruction, current_node, query_name, filter_subqueries.to_owned(), are_any_filters.clone(), eager_filter_evaluation.clone()) -%}
         {{ template.render().unwrap() }}
         {% if are_any_filters && eager_filter_evaluation %}
+            if (!{{query_name}}_try_evaluate_selection_condition(condition, condition_value) || condition_value) {
+                get<0>(all_results[result_i]) = new string(*result_buf, buf_start_pos);
+                get<1>(all_results[result_i]) = 0;
+                get<2>(all_results[result_i]) = result_buf->size() - buf_start_pos;
+            }
             result_in_progress_conditions.pop_back();
-        {% endif %}
-        if (result_i < all_results.size())
+            if (result_in_progress_conditions.empty())
+                result_buf->clear();
+        {% else %}
             get<2>(all_results[result_i]) = result_buf->size();
+        {% endif %}
     {%- when Instruction::Continue -%}
         continue;
     {%- when Instruction::TraverseCurrentNodeSubtree -%}
@@ -189,9 +197,14 @@
 {%- macro compile_object_iteration(loop_instruction) -%}
     {%- if let ForEachMember { instructions } = loop_instruction -%}
         ondemand::object object;
+
         if (!node.get_object().get(object))
         {
-            if (result_buf != nullptr)
+            bool is_result_saving_in_progress = result_buf != nullptr;
+            {% if are_any_filters && eager_filter_evaluation %}
+                is_result_saving_in_progress &= check_result_in_progress_conditions();
+            {% endif %}
+            if (is_result_saving_in_progress)
                 *result_buf += "{";
             bool first = true;
             for (ondemand::field field : object)
@@ -201,7 +214,7 @@
                     first_added_filter_id = all_filter_instances.size();
                 {%- endif -%}
                 string_view key = field.unescaped_key();
-                if (result_buf != nullptr)
+                if (is_result_saving_in_progress)
                 {
                     if (!first)
                         *result_buf += ", ";
@@ -212,7 +225,7 @@
                 first = false;
                 {%- call compile_instructions(instructions, "field.value()") -%}
             }
-            if (result_buf != nullptr)
+            if (is_result_saving_in_progress)
                 *result_buf += "}";
         }
     {%- endif -%}
@@ -223,7 +236,11 @@
         ondemand::array array;
         if (!node.get_array().get(array))
         {
-            if (result_buf != nullptr)
+            bool is_result_saving_in_progress = result_buf != nullptr;
+            {% if are_any_filters && eager_filter_evaluation %}
+                is_result_saving_in_progress &= check_result_in_progress_conditions();
+            {% endif %}
+            if (is_result_saving_in_progress)
                 *result_buf += "[";
             bool first = true;
             size_t index = 0;
@@ -249,13 +266,13 @@
                 if (!first)
                 {
                     index++;
-                    if (result_buf != nullptr)
+                    if (is_result_saving_in_progress)
                         *result_buf += ", ";
                 }
                 first = false;
                 {%- call compile_instructions(instructions, "element") -%}
             }
-            if (result_buf != nullptr)
+            if (is_result_saving_in_progress)
                 *result_buf += "]";
         }
     {%- endif -%}
