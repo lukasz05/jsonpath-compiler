@@ -110,24 +110,24 @@
     };
 
     struct selection_condition {
-        const enum {AND, OR, FILTER, ALWAYS_FALSE} type;
-        const selection_condition *lhs;
-        const selection_condition *rhs;
-        const filter_instance *filter;
+        enum {AND, OR, FILTER, ALWAYS_FALSE, ALWAYS_TRUE} type;
+        selection_condition *lhs;
+        selection_condition *rhs;
+        filter_instance *filter;
 
-        static selection_condition* new_and(const selection_condition *lhs, const selection_condition *rhs) {
+        static selection_condition* new_and(selection_condition *lhs, selection_condition *rhs) {
             auto ptr = new selection_condition {AND, lhs, rhs, nullptr};
             selection_conditions_to_delete.push_back(ptr);
             return ptr;
         }
 
-        static selection_condition* new_or(const selection_condition *lhs, const selection_condition *rhs) {
+        static selection_condition* new_or(selection_condition *lhs, selection_condition *rhs) {
             auto ptr = new selection_condition {OR, lhs, rhs, nullptr};
             selection_conditions_to_delete.push_back(ptr);
             return ptr;
         }
 
-        static selection_condition* new_filter(const filter_instance *filter) {
+        static selection_condition* new_filter(filter_instance *filter) {
             auto ptr = new selection_condition {FILTER, nullptr, nullptr, filter};
             selection_conditions_to_delete.push_back(ptr);
             return ptr;
@@ -217,7 +217,7 @@
 
 {%- macro generate_filter_aux_procedures_declarations(query_name) -%}
     filter_function_ptr {{query_name}}_get_filter_function(uint8_t filter_segment_index, uint8_t filter_selector_index);
-    bool {{query_name}}_try_evaluate_selection_condition(const selection_condition *condition, bool &value);
+    bool {{query_name}}_try_evaluate_selection_condition(selection_condition *condition, bool &value);
 {%- endmacro -%}
 
 {%- macro generate_filter_aux_procedures_definitions(query_name, filter_procedures) -%}
@@ -229,28 +229,52 @@
         return nullptr;
     }
 
-    bool {{query_name}}_try_evaluate_selection_condition(const selection_condition *condition, bool &value) {
+    bool {{query_name}}_try_evaluate_selection_condition(selection_condition *condition, bool &value) {
         if (condition == nullptr)
         {
             value = true;
             return true;
         }
         switch (condition->type) {
+            case selection_condition::ALWAYS_FALSE: {
+                value = false;
+                return true;
+            }
+            case selection_condition::ALWAYS_TRUE: {
+                value = true;
+                return true;
+            }
             case selection_condition::AND: {
                 if (condition->lhs == nullptr && condition->rhs == nullptr)
                 {
                     value = true;
+                    condition->type = selection_condition::ALWAYS_TRUE;
                     return true;
                 }
-                if (condition->lhs == nullptr)
-                    return {{query_name}}_try_evaluate_selection_condition(condition->rhs, value);
-                if (condition->rhs == nullptr)
-                    return {{query_name}}_try_evaluate_selection_condition(condition->lhs, value);
+                if (condition->lhs == nullptr) {
+                    bool success = {{query_name}}_try_evaluate_selection_condition(condition->rhs, value);
+                    if (success) {
+                        condition->type = value
+                            ? selection_condition::ALWAYS_TRUE
+                            : selection_condition::ALWAYS_FALSE;
+                    }
+                    return success;
+                }
+                if (condition->rhs == nullptr) {
+                    bool success = {{query_name}}_try_evaluate_selection_condition(condition->lhs, value);
+                    if (success) {
+                        condition->type = value
+                            ? selection_condition::ALWAYS_TRUE
+                            : selection_condition::ALWAYS_FALSE;
+                    }
+                    return success;
+                }
                 bool lhs_value;
                 bool lhs_success = {{query_name}}_try_evaluate_selection_condition(condition->lhs, lhs_value);
                 if (lhs_success && !lhs_value)
                 {
                     value = false;
+                    condition->type = selection_condition::ALWAYS_FALSE;
                     return true;
                 }
                 bool rhs_value;
@@ -258,11 +282,13 @@
                 if (rhs_success && !rhs_value)
                 {
                     value = false;
+                    condition->type = selection_condition::ALWAYS_FALSE;
                     return true;
                 }
                 if (rhs_success && lhs_success)
                 {
                     value = true;
+                    condition->type = selection_condition::ALWAYS_TRUE;
                     return true;
                 }
                 return false;
@@ -271,6 +297,7 @@
                 if (condition->lhs == nullptr || condition->rhs == nullptr)
                 {
                     value = true;
+                    condition->type = selection_condition::ALWAYS_TRUE;
                     return true;
                 }
                 bool lhs_value;
@@ -278,6 +305,7 @@
                 if (lhs_success && lhs_value)
                 {
                     value = true;
+                    condition->type = selection_condition::ALWAYS_TRUE;
                     return true;
                 }
                 bool rhs_value;
@@ -285,11 +313,13 @@
                 if (rhs_success && rhs_value)
                 {
                     value = true;
+                    condition->type = selection_condition::ALWAYS_TRUE;
                     return true;
                 }
                 if (rhs_success & lhs_success)
                 {
                     value = false;
+                    condition->type = selection_condition::ALWAYS_FALSE;
                     return true;
                 }
                 return false;
@@ -300,6 +330,9 @@
                     if (filters_results.contains(filter_id))
                     {
                         value = filters_results.at(filter_id);
+                        condition->type = value
+                            ? selection_condition::ALWAYS_TRUE
+                            : selection_condition::ALWAYS_FALSE;
                         return true;
                     }
                     return false;
@@ -307,12 +340,11 @@
                     auto filter_instance = condition->filter;
                     auto filter_function = {{query_name}}_get_filter_function(filter_instance->filter_segment_index, filter_instance->filter_selector_index);
                     value = filter_function(filter_instance->subqueries_results);
+                    condition->type = value
+                        ? selection_condition::ALWAYS_TRUE
+                        : selection_condition::ALWAYS_FALSE;
                     return true;
                 {%- endif -%}
-            }
-            case selection_condition::ALWAYS_FALSE: {
-                value = false;
-                return true;
             }
             default:
                 return false;
