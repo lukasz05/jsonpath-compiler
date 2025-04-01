@@ -202,7 +202,7 @@
         {
             bool is_result_saving_in_progress = result_buf != nullptr;
             {% if are_any_filters && eager_filter_evaluation %}
-                is_result_saving_in_progress &= check_result_in_progress_conditions();
+                is_result_saving_in_progress &= {{query_name}}_check_result_in_progress_conditions();
             {% endif %}
             if (is_result_saving_in_progress)
                 *result_buf += "{";
@@ -238,7 +238,7 @@
         {
             bool is_result_saving_in_progress = result_buf != nullptr;
             {% if are_any_filters && eager_filter_evaluation %}
-                is_result_saving_in_progress &= check_result_in_progress_conditions();
+                is_result_saving_in_progress &= {{query_name}}_check_result_in_progress_conditions();
             {% endif %}
             if (is_result_saving_in_progress)
                 *result_buf += "[";

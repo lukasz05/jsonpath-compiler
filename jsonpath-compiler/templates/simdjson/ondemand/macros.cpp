@@ -364,15 +364,14 @@
 {%- macro generate_traverse_and_save_selected_nodes_procedure(are_any_filters, eager_filter_evaluation, query_name) -%}
     {%- if are_any_filters -%}
         {% if eager_filter_evaluation %}
-            bool check_result_in_progress_conditions() {
+            bool {{query_name}}_check_result_in_progress_conditions() {
                 bool condition_value;
                 for (auto condition : result_in_progress_conditions)
-                    if (!_try_evaluate_selection_condition(condition, condition_value) || condition_value)
+                    if (!{{query_name}}_try_evaluate_selection_condition(condition, condition_value) || condition_value)
                         return true;
                 return false;
             }
         {% endif %}
-
         void {{query_name}}_traverse_and_save_selected_nodes(ondemand::value &node, string *result_buf,
                                               unordered_set<int> &filter_instances_ids,
                                               current_node_data &current_node)
@@ -444,7 +443,7 @@
                 }
 
                 {% if eager_filter_evaluation %}
-                    is_result_saving_in_progress &= check_result_in_progress_conditions();
+                    is_result_saving_in_progress &= {{query_name}}_check_result_in_progress_conditions();
                 {% endif %}
                 if (is_result_saving_in_progress)
                     *result_buf += node.raw_json().value();
@@ -458,7 +457,7 @@
             }
 
             {% if eager_filter_evaluation %}
-                is_result_saving_in_progress &= check_result_in_progress_conditions();
+                is_result_saving_in_progress &= {{query_name}}_check_result_in_progress_conditions();
             {% endif %}
             if (!is_result_saving_in_progress && filter_instances_ids.empty())
                 return;
