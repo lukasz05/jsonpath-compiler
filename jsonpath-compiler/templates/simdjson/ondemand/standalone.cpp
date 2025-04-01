@@ -34,23 +34,24 @@ using namespace simdjson;
 {%- endif -%}
 
 {%- if mmap -%}
-    string_view map_input(const char* filename);
+    string_view map_and_pad_input(const char* filename, size_t &capacity);
 {%- else -%}
-    string read_input(const char* filename);
+    string read_and_pad_input(const char *filename);
 {%- endif -%}
 
 {%- call common::generate_procedures_declarations(procedures) -%}
 
 int main(int argc, char **argv)
 {
-    {%- if mmap -%}
-        const auto input = map_input(argv[1]);
-    {%- else -%}
-        const auto input = read_input(argv[1]);
-    {%- endif -%}
-    const auto json = padded_string(input);
     ondemand::parser parser;
-    ondemand::document doc = parser.iterate(json);
+    {%- if mmap -%}
+        size_t capacity;
+        const auto padded_input = map_and_pad_input(argv[1], capacity);
+        ondemand::document doc = parser.iterate(padded_input, capacity);
+    {%- else -%}
+        const auto padded_input = read_and_pad_input(argv[1]);
+        ondemand::document doc = parser.iterate(padded_input);
+    {%- endif -%}
     ondemand::value root_node = doc.get_value().value();
     {%- if Self::are_any_filters(self) -%}
         vector<tuple<string *, size_t, size_t, selection_condition*>> all_results;
@@ -99,24 +100,26 @@ int main(int argc, char **argv)
 }
 
 {%- if mmap -%}
-    string_view map_input(const char* filename)
+    string_view map_and_pad_input(const char* filename, size_t &capacity)
     {
         const int fd = open(filename, O_RDONLY);
         if (fd == -1) exit(1);
         struct stat sb{};
         if (fstat(fd, &sb) == -1) exit(1);
-        const size_t length = sb.st_size;
-        const auto addr = static_cast<const char*>(mmap(nullptr, length, PROT_READ, MAP_PRIVATE, fd, 0u));
+        capacity = sb.st_size + SIMDJSON_PADDING;
+        const auto addr = static_cast<const char*>(mmap(nullptr, capacity, PROT_READ, MAP_PRIVATE, fd, 0u));
         if (addr == MAP_FAILED) exit(1);
         return {addr};
     }
 {%- else -%}
-    string read_input(const char* filename)
+    string read_and_pad_input(const char *filename)
     {
         ostringstream buf;
-        ifstream input (filename);
+        ifstream input(filename);
         buf << input.rdbuf();
-        return buf.str();
+        string input_str = buf.str();
+        input_str.reserve(input_str.size() + SIMDJSON_PADDING);
+        return input_str;
     }
 {%- endif -%}
 

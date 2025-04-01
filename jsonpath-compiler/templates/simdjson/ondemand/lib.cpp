@@ -55,7 +55,7 @@ using namespace simdjson;
     string {{query_name}}(const char* padded_input, size_t length)
     {
         ondemand::parser parser;
-        ondemand::document doc = parser.iterate(padded_input, length - 64, length);
+        ondemand::document doc = parser.iterate(padded_input, length - SIMDJSON_PADDING, length);
         ondemand::value root_node = doc.get_value().value();
         {%- if Self::are_any_filters_in_query(self, query_name) -%}
             vector<tuple<string *, size_t, size_t, selection_condition*>> all_results;
