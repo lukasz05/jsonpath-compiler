@@ -97,11 +97,10 @@ impl TestHelper {
     fn compile_query_code(&self) {
         let result = Command::new("c++")
             .arg(&self.query_code_file_path)
+            .arg(format!("{}/simdjson.cpp", self.simdjson_path))
             .arg("-std=c++20")
             .arg("-O3")
-            .arg(format!("-I{}/include", self.simdjson_path))
-            .arg(format!("-L{}/lib", self.simdjson_path))
-            .arg("-lsimdjson")
+            .arg(format!("-I{}", self.simdjson_path))
             .arg("-o").arg(&self.query_prog_file_path)
             .status()
             .unwrap();
