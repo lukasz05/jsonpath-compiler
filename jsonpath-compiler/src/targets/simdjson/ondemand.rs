@@ -328,9 +328,7 @@ impl TargetCodeGenerator for OnDemandCodeStandaloneProgGenerator {
             self.mmap(),
             self.eager_filter_evaluation(),
         );
-        let code = template.render().unwrap();
-        //clang_format_with_style(&code, &ClangFormatStyle::Microsoft).unwrap()
-        code
+        template.render().unwrap()
     }
 }
 
@@ -373,9 +371,7 @@ impl TargetCodeGenerator for OnDemandCodeLibGenerator {
             self.eager_filter_evaluation(),
             self.filename(),
         );
-        let code = template.render().unwrap();
-        //clang_format_with_style(&code, &ClangFormatStyle::Microsoft).unwrap()
-        code
+       template.render().unwrap()
     }
 }
 

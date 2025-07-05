@@ -2,7 +2,6 @@ use std::collections::HashSet;
 use std::string::ToString;
 
 use askama::Template;
-use clang_format::{clang_format_with_style, ClangFormatStyle};
 
 use crate::ir::{Instruction, Procedure, Query};
 use crate::ir::Instruction::{ForEachElement, ForEachMember};
@@ -150,8 +149,7 @@ impl TargetCodeGenerator for DomCodeStandaloneProgGenerator {
             self.logging(),
             self.mmap(),
         );
-        let code = template.render().unwrap();
-        clang_format_with_style(&code, &ClangFormatStyle::Microsoft).unwrap()
+        template.render().unwrap()
     }
 }
 
@@ -193,8 +191,7 @@ impl TargetCodeGenerator for DomCodeLibGenerator {
             self.bindings(),
             self.filename(),
         );
-        let code = template.render().unwrap();
-        clang_format_with_style(&code, &ClangFormatStyle::Microsoft).unwrap()
+        template.render().unwrap()
     }
 }
 
