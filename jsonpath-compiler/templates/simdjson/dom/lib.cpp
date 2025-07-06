@@ -24,12 +24,6 @@ using namespace simdjson;
     void {{procedure.name|lower}}(dom::element &node, vector<string> &all_results);
 {%- endfor -%}
 
-{%- if bindings -%}
-    extern "C" void free_result_buffer(char* result_buf) {
-        delete result_buf;
-    }
-{%- endif -%}
-
 {%- for query_name in query_names -%}
     string {{query_name}}(const char* padded_input, size_t length)
     {

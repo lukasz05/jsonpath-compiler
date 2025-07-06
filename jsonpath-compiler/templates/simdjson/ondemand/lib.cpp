@@ -45,12 +45,6 @@ using namespace simdjson;
 
 {%- call common::generate_procedures_declarations(Self::all_procedures(self)) -%}
 
-{%- if bindings -%}
-    extern "C" void free_result_buffer(char* result_buf) {
-        delete result_buf;
-    }
-{%- endif -%}
-
 {%- for query_name in Self::query_names(self) -%}
     string {{query_name}}(const char* padded_input, size_t length)
     {
